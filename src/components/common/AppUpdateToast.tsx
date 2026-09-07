@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles, Download, CheckCircle2, AlertCircle, X, ArrowUpCircle, RefreshCw } from 'lucide-react';
+import { Sparkles, Download, CheckCircle2, AlertCircle, X, ArrowUpCircle, RefreshCw, ExternalLink } from 'lucide-react';
 import { ConchaLogo } from '@/components/common/ConchaLogo';
 import { useAppUpdateStore } from '@/store/useAppUpdateStore';
 
@@ -15,6 +15,7 @@ export const AppUpdateToast: React.FC = () => {
     startDownload,
     quitAndInstall,
     dismissPrompt,
+    openReleasePage,
     isElectron
   } = useAppUpdateStore();
 
@@ -82,7 +83,7 @@ export const AppUpdateToast: React.FC = () => {
                   {status === 'downloading' &&
                     `${percent}% baixado ${formattedSpeed ? `(${formattedSpeed})` : ''} em segundo plano.`}
                   {status === 'downloaded' &&
-                    'O download terminou. Reinicie o Concha para aplicar as melhorias e correções.'}
+                    'A nova versão foi baixada em segundo plano. Ela será aplicada silenciosamente ao fechar o Concha, ou você pode reiniciar agora.'}
                   {status === 'error' &&
                     (errorMessage || 'Ocorreu um erro ao buscar ou baixar a atualização.')}
                   {status === 'checking' &&
@@ -152,27 +153,39 @@ export const AppUpdateToast: React.FC = () => {
                 <button
                   onClick={dismissPrompt}
                   className="px-3 py-1.5 rounded-lg text-xs font-medium text-stone-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                  title="Atualizar silenciosamente ao fechar o Concha"
                 >
-                  Depois
+                  Ao Fechar
                 </button>
                 <button
                   onClick={quitAndInstall}
                   className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/40 transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                  title="Reinicia o aplicativo e aplica a atualização sem instalador"
                 >
                   <ArrowUpCircle className="w-3.5 h-3.5" />
-                  Reiniciar e Instalar
+                  Reiniciar Agora
                 </button>
               </>
             )}
 
             {status === 'error' && (
-              <button
-                onClick={() => useAppUpdateStore.getState().checkForUpdates(true)}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                Tentar Novamente
-              </button>
+              <>
+                <button
+                  onClick={openReleasePage}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-stone-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                  title="Abrir página de download da versão no GitHub"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  Baixar pelo GitHub
+                </button>
+                <button
+                  onClick={() => useAppUpdateStore.getState().checkForUpdates(true)}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-[#1831D7] hover:bg-[#1831D7]/90 text-white transition-colors cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Tentar Novamente
+                </button>
+              </>
             )}
           </div>
         </div>

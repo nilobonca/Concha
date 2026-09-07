@@ -71,7 +71,8 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath }
     setViewMode,
     isNoteSearchOpen,
     setIsNoteSearchOpen,
-    setActiveEditorRef
+    setActiveEditorRef,
+    vaultId
   } = useVaultStore();
 
   const router = useRouter();
@@ -160,10 +161,17 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath }
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
   const [suggestionPosition, setSuggestionPosition] = useState<{ top: number; left: number } | null>(null);
 
+  const isDefaultVault = vaultId === 'default-vault' || !vaultId;
+
   // Available canvases in the Vault/database
   const allCanvases = useMemo(() => {
-    return (activeLayers || []).filter(l => l.isProjectMetadata || (!l.parentId && l.canvasType));
-  }, [activeLayers]);
+    return (activeLayers || []).filter(l => {
+      const isMeta = l.isProjectMetadata || (!l.parentId && l.canvasType);
+      if (!isMeta) return false;
+      if (l.vaultId) return l.vaultId === vaultId;
+      return isDefaultVault;
+    });
+  }, [activeLayers, vaultId, isDefaultVault]);
 
   // Unified suggestions combining notes and canvases
   const suggestions = useMemo<VaultLinkSuggestion[]>(() => {

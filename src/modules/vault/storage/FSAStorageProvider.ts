@@ -9,8 +9,22 @@ const HANDLE_KEY = 'fsa_vault_directory_handle';
 export class FSAStorageProvider implements IVaultStorageProvider {
   readonly type = 'fsa' as const;
   private rootHandle: FileSystemDirectoryHandle | null = null;
+  private _vaultId: string;
   private _vaultName: string = 'Local Windows Vault';
   private rootPhysicalPath: string | null = null;
+
+  constructor(vaultId: string = 'fsa-main', vaultName: string = 'Local Windows Vault') {
+    this._vaultId = vaultId;
+    this._vaultName = vaultName;
+  }
+
+  get vaultId(): string {
+    return this._vaultId;
+  }
+
+  setVaultId(vaultId: string): void {
+    this._vaultId = vaultId;
+  }
 
   get isConnected(): boolean {
     return this.rootHandle !== null;
@@ -33,7 +47,7 @@ export class FSAStorageProvider implements IVaultStorageProvider {
     }
 
     try {
-      const savedHandle = await this.getSavedHandleFromIDB();
+      const savedHandle = await this.getSavedHandleFromIDB(this._vaultId);
       if (savedHandle) {
         // Verify permissions
         const permission = await this.verifyPermission(savedHandle, true);
@@ -52,7 +66,10 @@ export class FSAStorageProvider implements IVaultStorageProvider {
   /**
    * Prompts the user to pick a folder on their Windows computer
    */
-  async pickDirectory(): Promise<boolean> {
+  async pickDirectory(targetVaultId?: string): Promise<boolean> {
+    if (targetVaultId) {
+      this._vaultId = targetVaultId;
+    }
     if (typeof window === 'undefined') {
       return false;
     }
@@ -111,7 +128,7 @@ export class FSAStorageProvider implements IVaultStorageProvider {
       this._vaultName = handle.name;
 
       // Persist handle to IndexedDB for automatic reconnection
-      await this.saveHandleToIDB(handle);
+      await this.saveHandleToIDB(handle, this._vaultId);
 
       return true;
     } catch (err: unknown) {
@@ -133,7 +150,7 @@ export class FSAStorageProvider implements IVaultStorageProvider {
     if (typeof window !== 'undefined') {
       localStorage.removeItem('vault_root_physical_path');
     }
-    await this.removeSavedHandleFromIDB();
+    await this.removeSavedHandleFromIDB(this._vaultId);
   }
 
   /**
@@ -530,7 +547,18 @@ export class FSAStorageProvider implements IVaultStorageProvider {
 
   // --- IndexedDB persistence for handle ---
 
-  private async getSavedHandleFromIDB(): Promise<FileSystemDirectoryHandle | null> {
+  private getHandleKey(vaultId: string = this._vaultId): string {
+    return `fsa_vault_directory_handle_${vaultId}`;
+  }
+
+  private async getSavedHandleFromIDB(vaultId: string = this._vaultId): Promise<FileSystemDirectoryHandle | null> {
+    return FSAStorageProvider.getSavedHandleFromIDB(vaultId);
+  }
+
+  /**
+   * Static helper to retrieve saved directory handle from IndexedDB
+   */
+  static async getSavedHandleFromIDB(vaultId: string): Promise<FileSystemDirectoryHandle | null> {
     return new Promise((resolve) => {
       const request = indexedDB.open(DB_NAME);
       request.onsuccess = () => {
@@ -540,15 +568,29 @@ export class FSAStorageProvider implements IVaultStorageProvider {
           return;
         }
         const tx = db.transaction(KEYVAL_STORE, 'readonly');
-        const getReq = tx.objectStore(KEYVAL_STORE).get(HANDLE_KEY);
-        getReq.onsuccess = () => resolve(getReq.result || null);
-        getReq.onerror = () => resolve(null);
+        const store = tx.objectStore(KEYVAL_STORE);
+
+        // Try per-vault handle key first
+        const specificReq = store.get(`fsa_vault_directory_handle_${vaultId}`);
+        specificReq.onsuccess = () => {
+          if (specificReq.result) {
+            resolve(specificReq.result);
+          } else if (vaultId === 'fsa-main') {
+            // Backward compatibility fallback for the legacy fsa-main handle
+            const legacyReq = store.get(HANDLE_KEY);
+            legacyReq.onsuccess = () => resolve(legacyReq.result || null);
+            legacyReq.onerror = () => resolve(null);
+          } else {
+            resolve(null);
+          }
+        };
+        specificReq.onerror = () => resolve(null);
       };
       request.onerror = () => resolve(null);
     });
   }
 
-  private async saveHandleToIDB(handle: FileSystemDirectoryHandle): Promise<void> {
+  private async saveHandleToIDB(handle: FileSystemDirectoryHandle, vaultId: string = this._vaultId): Promise<void> {
     return new Promise((resolve, reject) => {
       const request = indexedDB.open(DB_NAME);
       request.onsuccess = () => {
@@ -558,15 +600,31 @@ export class FSAStorageProvider implements IVaultStorageProvider {
           return;
         }
         const tx = db.transaction(KEYVAL_STORE, 'readwrite');
-        const putReq = tx.objectStore(KEYVAL_STORE).put(handle, HANDLE_KEY);
-        putReq.onsuccess = () => resolve();
-        putReq.onerror = () => reject(putReq.error);
+        const store = tx.objectStore(KEYVAL_STORE);
+
+        // Save under per-vault key
+        store.put(handle, this.getHandleKey(vaultId));
+
+        // If this is fsa-main, also write to legacy key for compatibility
+        if (vaultId === 'fsa-main') {
+          store.put(handle, HANDLE_KEY);
+        }
+
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
       };
       request.onerror = () => reject(request.error);
     });
   }
 
-  private async removeSavedHandleFromIDB(): Promise<void> {
+  private async removeSavedHandleFromIDB(vaultId: string = this._vaultId): Promise<void> {
+    return FSAStorageProvider.removeSavedHandleFromIDB(vaultId);
+  }
+
+  /**
+   * Static helper to remove directory handle associated with a specific vault ID from IndexedDB
+   */
+  static async removeSavedHandleFromIDB(vaultId: string): Promise<void> {
     return new Promise((resolve) => {
       const request = indexedDB.open(DB_NAME);
       request.onsuccess = () => {
@@ -576,10 +634,60 @@ export class FSAStorageProvider implements IVaultStorageProvider {
           return;
         }
         const tx = db.transaction(KEYVAL_STORE, 'readwrite');
-        tx.objectStore(KEYVAL_STORE).delete(HANDLE_KEY);
+        const store = tx.objectStore(KEYVAL_STORE);
+
+        store.delete(`fsa_vault_directory_handle_${vaultId}`);
+        if (vaultId === 'fsa-main') {
+          store.delete(HANDLE_KEY);
+        }
+
         tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
       };
       request.onerror = () => resolve();
     });
+  }
+
+  /**
+   * Deletes the physical directory from the computer disk or moves it to the Windows Recycle Bin
+   */
+  static async deletePhysicalDirectory(vaultId: string, physicalPath?: string): Promise<{ success: boolean; error?: string }> {
+    // 1. Se estiver no Electron e possuir caminho do sistema operacional, envia para a Lixeira do Windows
+    if (typeof window !== 'undefined' && window.electronAPI?.trashItem && physicalPath) {
+      try {
+        const res = await window.electronAPI.trashItem(physicalPath);
+        if (res.success) {
+          return { success: true };
+        }
+      } catch (err: unknown) {
+        console.warn('[FSAStorageProvider] Falha ao enviar para a lixeira via Electron:', err);
+      }
+    }
+
+    // 2. Se possuir FileSystemDirectoryHandle salvo no IndexedDB, usa a API FSA
+    try {
+      const handle = await FSAStorageProvider.getSavedHandleFromIDB(vaultId);
+      if (handle) {
+        // Chromium 110+ suporta remoção recursiva direta do handle raiz
+        if ('remove' in handle && typeof (handle as unknown as { remove: (opts?: { recursive: boolean }) => Promise<void> }).remove === 'function') {
+          await (handle as unknown as { remove: (opts?: { recursive: boolean }) => Promise<void> }).remove({ recursive: true });
+          return { success: true };
+        }
+
+        // Fallback: remove todas as entradas filhas recursivamente
+        if ('values' in handle && typeof (handle as unknown as { values: () => AsyncIterable<FileSystemHandle> }).values === 'function') {
+          for await (const entry of (handle as unknown as { values: () => AsyncIterable<FileSystemHandle> }).values()) {
+            await handle.removeEntry(entry.name, { recursive: entry.kind === 'directory' });
+          }
+          return { success: true };
+        }
+      }
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : 'Falha ao excluir pasta do computador';
+      console.error('[FSAStorageProvider] Erro ao remover diretório físico:', err);
+      return { success: false, error: errorMsg };
+    }
+
+    return { success: true };
   }
 }

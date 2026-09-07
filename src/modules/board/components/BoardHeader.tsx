@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
-import { ArrowLeft, Check, Edit2, FolderKanban, Folder, Box, Sun, Moon } from 'lucide-react';
+import { ArrowLeft, Check, Edit2, FolderKanban, Folder, Box } from 'lucide-react';
 import { WindowControls } from '@/components/common/WindowControls';
 import { isElectron } from '@/utils/electronHelper';
 
@@ -9,8 +9,6 @@ interface BoardHeaderProps {
   onUpdateName: (name: string) => void;
   elementsCount: number;
   connectionsCount: number;
-  canvasTheme?: 'dark' | 'light';
-  onToggleTheme?: () => void;
   isEmbeddedInVault?: boolean;
   onCloseEmbedded?: () => void;
   folderPath?: string | null;
@@ -22,8 +20,6 @@ export const BoardHeader: React.FC<BoardHeaderProps> = ({
   onUpdateName,
   elementsCount,
   connectionsCount,
-  canvasTheme = 'dark',
-  onToggleTheme,
   isEmbeddedInVault,
   onCloseEmbedded,
   folderPath,
@@ -149,43 +145,28 @@ export const BoardHeader: React.FC<BoardHeaderProps> = ({
         title="Arrastar Janela"
       />
 
-      {/* Lado Direito: Estatísticas / Resumo, Alternador de Fundo do Canvas e Controles da Janela (.exe) */}
-      <div 
-        className="pointer-events-auto flex items-center gap-2 bg-white/85 dark:bg-[#14141C]/85 border border-black/10 dark:border-white/10 rounded-2xl px-3 py-1.5 shadow-xl backdrop-blur-xl text-stone-500 dark:text-neutral-400 text-xs font-mono select-none shrink-0 app-region-no-drag"
-        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <span>{elementsCount} elementos</span>
-        <span>•</span>
-        <span>{connectionsCount} setas</span>
-        {onToggleTheme && (
-          <>
-            <span>•</span>
-            <button
-              type="button"
-              onClick={onToggleTheme}
-              className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 text-stone-700 dark:text-neutral-300 transition-colors cursor-pointer font-sans text-xs font-medium"
-              title={canvasTheme === 'light' ? "Mudar para fundo escuro" : "Mudar para fundo claro"}
-            >
-              {canvasTheme === 'light' ? (
-                <>
-                  <Moon className="w-3.5 h-3.5 text-[#1831D7]" />
-                  <span>Fundo Escuro</span>
-                </>
-              ) : (
-                <>
-                  <Sun className="w-3.5 h-3.5 text-amber-500" />
-                  <span>Fundo Claro</span>
-                </>
-              )}
-            </button>
-          </>
-        )}
-        {isElec && (
-          <>
-            <div className="h-4 w-[1px] bg-black/10 dark:bg-white/10 mx-1" />
+      {/* Lado Direito: Estatísticas / Resumo (elementos e setas) */}
+      <div className="flex items-center gap-2 shrink-0">
+        {/* Componente de Estatísticas (Elementos e Setas) */}
+        <div 
+          className="pointer-events-auto flex items-center gap-2 bg-white/85 dark:bg-[#14141C]/85 border border-black/10 dark:border-white/10 rounded-2xl px-3 py-1.5 shadow-xl backdrop-blur-xl text-stone-500 dark:text-neutral-400 text-xs font-mono select-none app-region-no-drag"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <span>{elementsCount} elementos</span>
+          <span>•</span>
+          <span>{connectionsCount} setas</span>
+        </div>
+
+        {/* Controles da Janela (.exe Electron) fora do componente de elementos e setas (apenas em modo standalone fora do Vault) */}
+        {!isEmbeddedInVault && isElec && (
+          <div 
+            className="pointer-events-auto flex items-center bg-white/85 dark:bg-[#14141C]/85 border border-black/10 dark:border-white/10 rounded-2xl px-2 py-1.5 shadow-xl backdrop-blur-xl app-region-no-drag"
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
             <WindowControls variant="compact" />
-          </>
+          </div>
         )}
       </div>
     </header>

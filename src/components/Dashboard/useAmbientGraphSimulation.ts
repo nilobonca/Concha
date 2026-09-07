@@ -179,7 +179,7 @@ export const useAmbientGraphSimulation = ({
   const initGraph = useCallback((width: number, height: number) => {
     if (width <= 0 || height <= 0) return;
 
-    // 1. Resolve raw items
+    // 1. Resolve raw items (não exibir nada se não houver dados reais)
     let sourceItems: RealGraphNodeItem[] = [];
 
     if (realNodes && realNodes.length > 0) {
@@ -195,37 +195,24 @@ export const useAmbientGraphSimulation = ({
         };
       });
     } else {
-      const currentVaultTitle = vaultName && vaultName.trim().length > 0
-        ? vaultName.trim()
-        : 'Meu Vault';
+      sourceItems = [];
+    }
 
-      sourceItems = [
-        {
-          id: 'welcome-vault',
-          title: currentVaultTitle,
-          color: '#c084fc',
-          connectionsCount: 3,
-        },
-        {
-          id: 'welcome-notes',
-          title: 'Notas do Grimório',
-          color: '#38bdf8',
-          connectionsCount: 2,
-        },
-        {
-          id: 'welcome-canvas',
-          title: 'Canvas Infinito',
-          color: '#818cf8',
-          connectionsCount: 2,
-          isCanvas: true,
-        },
-        {
-          id: 'welcome-lore',
-          title: 'Conexões & Ideias',
-          color: '#34d399',
-          connectionsCount: 1,
-        },
-      ];
+    // Se não houver nós para exibir, limpa completamente o grafo e encerra a simulação
+    if (sourceItems.length === 0) {
+      nodesRef.current = [];
+      linksRef.current = [];
+      sparksRef.current = [];
+      dustRef.current = [];
+      setNodeCount(0);
+      setLinkCount(0);
+      setHoveredNode(null);
+      hoveredNodeIdRef.current = null;
+      if (simulationRef.current) {
+        simulationRef.current.stop();
+        simulationRef.current = null;
+      }
+      return;
     }
 
     // Preserve existing node positions during incremental updates
@@ -317,12 +304,6 @@ export const useAmbientGraphSimulation = ({
       realLinks.forEach(rl => {
         addLink(rl.sourceId, rl.targetId);
       });
-    } else if (!realNodes || realNodes.length === 0) {
-      // Welcome constellation fallback links
-      addLink('welcome-vault', 'welcome-notes');
-      addLink('welcome-vault', 'welcome-canvas');
-      addLink('welcome-vault', 'welcome-lore');
-      addLink('welcome-notes', 'welcome-canvas');
     }
 
     // Recalculate true connections count
@@ -453,6 +434,12 @@ export const useAmbientGraphSimulation = ({
         ctx.clearRect(0, 0, width, height);
 
         const nodes = nodesRef.current;
+        if (nodes.length === 0) {
+          ctx.restore();
+          animFrameIdRef.current = requestAnimationFrame(render);
+          return;
+        }
+
         const links = linksRef.current;
         const sparks = sparksRef.current;
         const dust = dustRef.current;

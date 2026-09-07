@@ -179,6 +179,7 @@ export interface ActiveNote {
     borderWidth?: number;
     fillMode?: 'filled' | 'transparent' | 'outlined';
     vaultPath?: string; // Caminho do arquivo vinculado no Vault (ex: "Nova nota.md")
+    title?: string; // Título / nome visível da nota
 }
 
 export interface PollQuestion {

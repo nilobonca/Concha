@@ -8,7 +8,9 @@ import { useVaultStore } from '@/modules/vault/hooks/useVaultStore';
 import { htmlToMarkdown } from '@/modules/vault/utils/markdownConverter';
 import { marked } from 'marked';
 import clsx from 'clsx';
-import { cleanLegacyPlaceholder } from '@/utils/cleanLegacyPlaceholder';
+import { cleanLegacyPlaceholder, cleanDuplicateTitle } from '@/utils/cleanLegacyPlaceholder';
+import { UpdateOriginalNoteModal } from '@/modules/vault/components/UpdateOriginalNoteModal';
+import { getCanvasNoteSyncPref, setCanvasNoteSyncPref } from '@/modules/vault/utils/canvasNoteSyncPref';
 
 interface BoardNoteElementProps {
   element: BoardElement;
@@ -49,8 +51,8 @@ function getNoteTheme(color?: string) {
   return NOTE_THEMES.cobalt;
 }
 
-function processMarkdownForPreview(markdown: string): string {
-  const cleaned = cleanLegacyPlaceholder(markdown);
+function processMarkdownForPreview(markdown: string, title?: string): string {
+  const cleaned = cleanDuplicateTitle(cleanLegacyPlaceholder(markdown), title);
   if (!cleaned) {
     return '';
   }
@@ -88,6 +90,9 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
   const wasSelectedRef = useRef(isSelected);
   const pointerDownPosRef = useRef<{ x: number; y: number } | null>(null);
 
+  // Nome/título da nota usado para filtrar duplicações
+  const noteTitle = data.title || (data.filePath ? data.filePath.split('/').pop()?.replace(/\.(md|txt)$/i, '') : '') || '';
+
   // Notifica o hook do Board que este elemento está em modo de edição
   useEffect(() => {
     onSetEditing?.(isEditing);
@@ -101,12 +106,12 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
   useEffect(() => {
     if (!data.filePath || isEditing || !cachedVaultDoc?.content) return;
     const md = htmlToMarkdown(cachedVaultDoc.content);
-    const cleaned = cleanLegacyPlaceholder(md);
+    const cleaned = cleanDuplicateTitle(cleanLegacyPlaceholder(md), noteTitle);
     if (cleaned !== data.content) {
       setDraftContent(cleaned);
       onUpdate({ data: { ...data, content: cleaned } });
     }
-  }, [cachedVaultDoc?.content, data.filePath, isEditing, data, onUpdate]);
+  }, [cachedVaultDoc?.content, data.filePath, isEditing, data, noteTitle, onUpdate]);
 
   const handleUpdateTitle = useCallback((newTitle: string) => {
     onUpdate({
@@ -117,19 +122,19 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
     });
   }, [data, onUpdate]);
 
-  // Estado local do rascunho de edição (limpando qualquer placeholder residual legado)
-  const [draftContent, setDraftContent] = useState(() => cleanLegacyPlaceholder(data.content));
+  // Estado local do rascunho de edição (limpando qualquer placeholder residual e título redundante)
+  const [draftContent, setDraftContent] = useState(() => cleanDuplicateTitle(cleanLegacyPlaceholder(data.content), noteTitle));
 
   // Sincroniza draft quando o conteúdo externo mudar e não estivermos editando
   useEffect(() => {
     if (!isEditing) {
-      setDraftContent(cleanLegacyPlaceholder(data.content));
+      setDraftContent(cleanDuplicateTitle(cleanLegacyPlaceholder(data.content), noteTitle));
     }
-  }, [data.content, isEditing]);
+  }, [data.content, noteTitle, isEditing]);
 
   // Purga permanentemente qualquer placeholder residual gravado no banco de dados
   useEffect(() => {
-    const cleaned = cleanLegacyPlaceholder(data.content);
+    const cleaned = cleanDuplicateTitle(cleanLegacyPlaceholder(data.content), noteTitle);
     if (data.content && data.content !== cleaned) {
       onUpdate({
         data: {
@@ -138,7 +143,7 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
         }
       });
     }
-  }, [data.content, onUpdate]);
+  }, [data.content, noteTitle, onUpdate, data]);
 
   // Rastreia estado da seleção antes do início do clique
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -168,29 +173,66 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
     setIsEditing(true);
   };
 
+  const [showSyncModal, setShowSyncModal] = useState(false);
+  const pendingDraftRef = useRef<string>(draftContent);
+
   const theme = getNoteTheme(data.color);
 
   // Salvar nota e sair do modo edição
   const saveAndExitEdit = useCallback(() => {
     setIsEditing(false);
-    onUpdate({
-      data: {
-        ...data,
-        content: draftContent,
-      }
-    });
+    const cleanedDraft = cleanDuplicateTitle(cleanLegacyPlaceholder(draftContent), noteTitle);
+    const hasChanged = cleanedDraft !== cleanDuplicateTitle(cleanLegacyPlaceholder(data.content || ''), noteTitle);
 
-    // Se for uma nota vinculada do Vault, sincroniza no storage do Vault também
-    if (data.filePath) {
-      useVaultStore.getState().syncCanvasNote(data.filePath, draftContent);
+    if (hasChanged) {
+      onUpdate({
+        data: {
+          ...data,
+          content: cleanedDraft,
+        }
+      });
     }
-  }, [data, draftContent, onUpdate]);
+
+    // Se for uma nota vinculada do Vault e o conteúdo mudou
+    if (data.filePath && hasChanged) {
+      const pref = getCanvasNoteSyncPref();
+      if (pref === 'always') {
+        useVaultStore.getState().syncCanvasNote(data.filePath, cleanedDraft);
+      } else if (pref === 'never') {
+        // Não sincroniza com o Vault
+      } else {
+        // 'ask': abre o modal de confirmação
+        pendingDraftRef.current = cleanedDraft;
+        setShowSyncModal(true);
+      }
+    }
+  }, [data, draftContent, noteTitle, onUpdate]);
+
+  const handleAlwaysUpdate = useCallback(() => {
+    setCanvasNoteSyncPref('always');
+    if (data.filePath) {
+      useVaultStore.getState().syncCanvasNote(data.filePath, pendingDraftRef.current);
+    }
+    setShowSyncModal(false);
+  }, [data.filePath]);
+
+  const handleJustOnce = useCallback(() => {
+    if (data.filePath) {
+      useVaultStore.getState().syncCanvasNote(data.filePath, pendingDraftRef.current);
+    }
+    setShowSyncModal(false);
+  }, [data.filePath]);
+
+  const handleDoNotUpdate = useCallback(() => {
+    setShowSyncModal(false);
+  }, []);
 
   // Click outside listener: ao clicar fora da nota enquanto edita, salva e volta ao modo renderizado
   useEffect(() => {
     if (!isEditing) return;
 
     const handlePointerDownOutside = (e: MouseEvent | PointerEvent) => {
+      if (showSyncModal) return;
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         saveAndExitEdit();
       }
@@ -200,7 +242,7 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
     return () => {
       window.removeEventListener('pointerdown', handlePointerDownOutside, true);
     };
-  }, [isEditing, saveAndExitEdit]);
+  }, [isEditing, saveAndExitEdit, showSyncModal]);
 
   // Se perder a seleção enquanto edita, salva e volta ao modo renderizado
   useEffect(() => {
@@ -213,8 +255,8 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
     const rawContent = isEditing
       ? draftContent
       : (draftContent !== undefined && draftContent !== '' ? draftContent : (data.content || ''));
-    return processMarkdownForPreview(rawContent);
-  }, [isEditing, draftContent, data.content]);
+    return processMarkdownForPreview(rawContent, noteTitle);
+  }, [isEditing, draftContent, data.content, noteTitle]);
 
   // Arraste do elemento
   const bindDrag = useGesture({
@@ -317,6 +359,7 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
   return (
     <div
       ref={containerRef}
+      tabIndex={-1}
       style={{
         position: 'absolute',
         left: element.x,
@@ -325,12 +368,16 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
         height: element.height,
         zIndex: isSelected ? 50 : element.zIndex,
       }}
-      className="group select-none"
+      className="group select-none outline-none"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      onPointerDown={handlePointerDown}
+      onPointerDown={(e) => {
+        containerRef.current?.focus({ preventScroll: true });
+        handlePointerDown(e);
+      }}
       onClick={(e) => {
         e.stopPropagation();
+        containerRef.current?.focus({ preventScroll: true });
         onSelect();
         handleClick(e);
       }}
@@ -377,7 +424,13 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
         title="Redimensionar"
       />
 
-      {/* Botões de Opções de Interação (acima da nota no canto direito) */}
+      {/* Título/nome da nota em cima do retângulo de borda à esquerda */}
+      <BoardNoteTitle
+        title={data.title}
+        onUpdateTitle={handleUpdateTitle}
+      />
+
+      {/* Botões de Opções de Interação (centralizados mais acima) */}
       <BoardNoteActions
         isSelected={isSelected}
         isHovered={isHovered}
@@ -410,29 +463,17 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
           borderColor: theme.border,
         }}
       >
-        {/* Nome da Nota - Menor e centralizado com divider que não encosta nas paredes */}
-        <BoardNoteTitle
-          title={data.title}
-          isEditing={isEditing}
-          themeBorder={theme.border}
-          onUpdateTitle={handleUpdateTitle}
-        />
-
         {/* Corpo: Modo Edição Direto ou Preview Renderizado */}
         {isEditing ? (
           <div 
-            className="w-full flex-1 min-h-0 flex flex-col p-4 pt-1 cursor-text select-text"
+            className="w-full flex-1 min-h-0 flex flex-col p-4 cursor-text select-text"
             onPointerDown={(e) => e.stopPropagation()}
           >
             <textarea
               autoFocus
               value={draftContent}
               onChange={(e) => {
-                const val = e.target.value;
-                setDraftContent(val);
-                if (data.filePath) {
-                  useVaultStore.getState().syncCanvasNote(data.filePath, val);
-                }
+                setDraftContent(e.target.value);
               }}
               onKeyDownCapture={(e) => {
                 e.stopPropagation();
@@ -459,6 +500,16 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
           />
         )}
       </div>
+
+      {/* Modal de Confirmação de Atualização da Nota Original */}
+      <UpdateOriginalNoteModal
+        isOpen={showSyncModal}
+        onClose={handleDoNotUpdate}
+        onAlwaysUpdate={handleAlwaysUpdate}
+        onJustOnce={handleJustOnce}
+        onDoNotUpdate={handleDoNotUpdate}
+        fileName={data.filePath}
+      />
     </div>
   );
 };

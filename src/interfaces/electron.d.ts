@@ -13,6 +13,7 @@ export interface ElectronAPI {
   platform: string;
   selectDirectory: () => Promise<string | null>;
   openFolderInExplorer: (folderPath: string) => Promise<boolean>;
+  openExternal?: (url: string) => Promise<boolean>;
   trashItem: (filePath: string) => Promise<{ success: boolean; error?: string }>;
   getPathForFile: (file: File) => string;
   minimize: () => void;

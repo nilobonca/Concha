@@ -33,7 +33,7 @@ export const VaultGeneralCanvasesTab: React.FC<VaultGeneralCanvasesTabProps> = (
   onSelectPath,
 }) => {
   const router = useRouter();
-  const { openCanvasTab, closeTab } = useVaultStore();
+  const { openCanvasTab, closeTab, vaultId } = useVaultStore();
   const { activeLayers, updateLayer, deleteLayer } = useIDB();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -53,8 +53,15 @@ export const VaultGeneralCanvasesTab: React.FC<VaultGeneralCanvasesTabProps> = (
   const [deleteTarget, setDeleteTarget] = useState<Layer | null>(null);
   const [renameTarget, setRenameTarget] = useState<Layer | null>(null);
 
-  // Filter general canvases (where folderPath is null or empty)
-  const allCanvases = useMemo(() => activeLayers.filter(l => l.isProjectMetadata), [activeLayers]);
+  // Filter general canvases belonging to active vault (where folderPath is null or empty)
+  const isDefaultVault = vaultId === 'default-vault' || !vaultId;
+  const allCanvases = useMemo(() => {
+    return activeLayers.filter(l => {
+      if (!l.isProjectMetadata) return false;
+      if (l.vaultId) return l.vaultId === vaultId;
+      return isDefaultVault;
+    });
+  }, [activeLayers, vaultId, isDefaultVault]);
   const generalCanvases = useMemo(() => allCanvases.filter(l => !l.folderPath), [allCanvases]);
 
   // Sort according to custom order in localStorage

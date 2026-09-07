@@ -24,6 +24,7 @@ export interface AppUpdateState {
   quitAndInstall: () => void;
   dismissPrompt: () => void;
   openPrompt: () => void;
+  openReleasePage: () => void;
 }
 
 function isMissingReleaseError(message?: string | null): boolean {
@@ -125,20 +126,23 @@ export const useAppUpdateStore = create<AppUpdateState>((set, get) => ({
           });
           break;
 
-        case 'downloaded':
+        case 'downloaded': {
+          const isDismissed = state.dismissedVersion === (payload.version || state.availableVersion);
           set({
             status: 'downloaded',
             percent: 100,
             isChecking: false,
-            isPromptVisible: true,
+            isPromptVisible: !isDismissed,
             availableVersion: payload.version || state.availableVersion,
             errorMessage: null
           });
           break;
+        }
 
         case 'error': {
           const errMsg = payload.message || '';
-          if (isMissingReleaseError(errMsg)) {
+          // Only silence error as 'not-available' if we were in the checking phase
+          if (state.status === 'checking' && isMissingReleaseError(errMsg)) {
             set({
               status: 'not-available',
               isChecking: false,
@@ -151,6 +155,7 @@ export const useAppUpdateStore = create<AppUpdateState>((set, get) => ({
           set({
             status: 'error',
             isChecking: false,
+            isPromptVisible: true,
             errorMessage: errMsg || 'Não foi possível verificar ou baixar a atualização.'
           });
           break;
@@ -245,5 +250,16 @@ export const useAppUpdateStore = create<AppUpdateState>((set, get) => ({
 
   openPrompt: () => {
     set({ isPromptVisible: true });
+  },
+
+  openReleasePage: () => {
+    const url = 'https://github.com/nilobonca/Concha/releases/latest';
+    if (typeof window !== 'undefined') {
+      if (window.electronAPI?.openExternal) {
+        window.electronAPI.openExternal(url);
+      } else {
+        window.open(url, '_blank');
+      }
+    }
   }
 }));

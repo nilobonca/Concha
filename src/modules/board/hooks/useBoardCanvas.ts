@@ -16,6 +16,7 @@ import {
 import { useBoardStorage } from './useBoardStorage';
 import { useBoardConnections, getFacingHandle, getOppositeHandle } from './useBoardConnections';
 import { useVaultStore } from '@/modules/vault/hooks/useVaultStore';
+import { cleanLegacyPlaceholder, cleanDuplicateTitle } from '@/utils/cleanLegacyPlaceholder';
 
 const DEFAULT_NOTE_WIDTH = 220;
 const DEFAULT_NOTE_HEIGHT = 180;
@@ -297,7 +298,7 @@ export function useBoardCanvas(boardId: string, initialName?: string) {
       zIndex: 1,
       data: {
         title,
-        content: initialContent || '',
+        content: cleanDuplicateTitle(cleanLegacyPlaceholder(initialContent || ''), title),
         color,
         filePath: targetFilePath,
       } as NoteData,
@@ -480,9 +481,13 @@ export function useBoardCanvas(boardId: string, initialName?: string) {
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedElementId) {
           e.preventDefault();
+          e.stopPropagation();
+          e.stopImmediatePropagation?.();
           deleteElement(selectedElementId);
         } else if (connectionsHook.selectedConnectionId) {
           e.preventDefault();
+          e.stopPropagation();
+          e.stopImmediatePropagation?.();
           connectionsHook.deleteConnection(connectionsHook.selectedConnectionId);
         }
       }
@@ -504,8 +509,8 @@ export function useBoardCanvas(boardId: string, initialName?: string) {
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [connectionsHook, deleteElement, selectedElementId, boardData.elements, updateElement, editingElementId]);
 
   return {

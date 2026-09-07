@@ -12,6 +12,7 @@ import {
   SoundboardItem,
 } from '@/interfaces/utils/indexedDB';
 import { useVaultStore } from '@/modules/vault/hooks/useVaultStore';
+import { cleanLegacyPlaceholder, cleanDuplicateTitle } from '@/utils/cleanLegacyPlaceholder';
 
 export interface UseCanvasDragAndDropProps {
   activeProjectId?: string | null;
@@ -242,7 +243,8 @@ export const useCanvasDragAndDrop = ({
         const newNote: ActiveNote = {
           id: uuidv4(),
           type: 'note',
-          content: content || `# ${noteName}\n\nNota vinculada: ${notePath}`,
+          title: noteName,
+          content: cleanDuplicateTitle(cleanLegacyPlaceholder(content || ''), noteName),
           position: { x, y },
           width: 260,
           height: 140,
@@ -328,7 +330,8 @@ export const useCanvasDragAndDrop = ({
         const newNote: ActiveNote = {
           id: uuidv4(),
           type: 'note',
-          content: content || `# ${noteName}\n\nNota vinculada: ${vaultPath || ''}`,
+          title: noteName,
+          content: cleanDuplicateTitle(cleanLegacyPlaceholder(content || ''), noteName),
           position: { x, y },
           width: 260,
           height: 140,

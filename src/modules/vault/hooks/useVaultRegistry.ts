@@ -1,28 +1,16 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useEffect, useCallback, useMemo } from 'react';
 import { useVaultStore } from './useVaultStore';
 import { useIDB } from '@/utils/indexedDB';
+import { FSAStorageProvider } from '../storage/FSAStorageProvider';
+import {
+  RegisteredVault,
+  VAULT_REGISTRY_KEY,
+  DEFAULT_VAULT,
+  useVaultRegistryStore,
+} from './useVaultRegistryStore';
 
-export interface RegisteredVault {
-  id: string;
-  name: string;
-  storageType: 'fsa' | 'idb';
-  folderName?: string;
-  path?: string;
-  updatedAt: number;
-  documentCount?: number;
-  canvasCount?: number;
-  isDefault?: boolean;
-}
-
-const VAULT_REGISTRY_KEY = 'rpgsa_registered_vaults';
-
-const DEFAULT_VAULT: RegisteredVault = {
-  id: 'default-vault',
-  name: 'Meu Vault Local',
-  storageType: 'idb',
-  updatedAt: Date.now(),
-  isDefault: true,
-};
+export type { RegisteredVault };
+export { VAULT_REGISTRY_KEY, DEFAULT_VAULT, useVaultRegistryStore };
 
 export function useVaultRegistry() {
   const { 
@@ -38,67 +26,42 @@ export function useVaultRegistry() {
 
   const { activeLayers } = useIDB();
 
-  const [storedVaults, setStoredVaults] = useState<RegisteredVault[]>([]);
-  const [isLoaded, setIsLoaded] = useState(false);
+  const rawVaults = useVaultRegistryStore(s => s.vaults);
+  const isLoaded = useVaultRegistryStore(s => s.isLoaded);
+  const loadFromStorage = useVaultRegistryStore(s => s.loadFromStorage);
+  const registerVault = useVaultRegistryStore(s => s.registerVault);
+  const removeVaultAction = useVaultRegistryStore(s => s.removeVault);
+  const renameVaultAction = useVaultRegistryStore(s => s.renameVault);
+  const syncCurrentVault = useVaultRegistryStore(s => s.syncCurrentVault);
 
-  // Carregar lista de vaults salvos do localStorage
+  // Inicializar o store a partir do localStorage no mount (uma única vez por app)
+  useEffect(() => {
+    if (!isLoaded) {
+      loadFromStorage();
+    }
+  }, [isLoaded, loadFromStorage]);
+
+  // Listener nativo de storage para sincronizar entre abas/janelas
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    try {
-      const raw = localStorage.getItem(VAULT_REGISTRY_KEY);
-      if (raw) {
-        const parsed: RegisteredVault[] = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setStoredVaults(parsed);
-          setIsLoaded(true);
-          return;
-        }
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === VAULT_REGISTRY_KEY) {
+        loadFromStorage();
       }
-    } catch (e) {
-      console.error('Erro ao ler registro de vaults do localStorage:', e);
-    }
-
-    // Default fallback
-    setStoredVaults([DEFAULT_VAULT]);
-    setIsLoaded(true);
-  }, []);
-
-  // Salvar alterações no localStorage
-  const saveVaultsToStorage = useCallback((vaults: RegisteredVault[]) => {
-    if (typeof window === 'undefined') return;
-    try {
-      localStorage.setItem(VAULT_REGISTRY_KEY, JSON.stringify(vaults));
-    } catch (e) {
-      console.error('Erro ao salvar vaults no localStorage:', e);
-    }
-  }, []);
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, [loadFromStorage]);
 
   // Sincronizar o vault atualmente conectado com a lista registrada
   useEffect(() => {
     if (!isLoaded || !currentVaultId) return;
-
-    setStoredVaults(prev => {
-      const index = prev.findIndex(v => v.id === currentVaultId);
-      const updatedVault: RegisteredVault = {
-        id: currentVaultId,
-        name: currentVaultName || (currentStorageType === 'fsa' ? 'Pasta Windows (HD)' : 'Meu Vault'),
-        storageType: currentStorageType,
-        updatedAt: Date.now(),
-        isDefault: currentVaultId === 'default-vault',
-      };
-
-      let next: RegisteredVault[];
-      if (index >= 0) {
-        next = [...prev];
-        next[index] = { ...prev[index], ...updatedVault };
-      } else {
-        next = [updatedVault, ...prev];
-      }
-
-      saveVaultsToStorage(next);
-      return next;
+    syncCurrentVault({
+      id: currentVaultId,
+      name: currentVaultName,
+      storageType: currentStorageType,
     });
-  }, [currentVaultId, currentVaultName, currentStorageType, isLoaded, saveVaultsToStorage]);
+  }, [currentVaultId, currentVaultName, currentStorageType, isLoaded, syncCurrentVault]);
 
   // Contagem de canvases por vault
   const allCanvases = useMemo(() => {
@@ -107,7 +70,7 @@ export function useVaultRegistry() {
 
   // Enriquecer vaults com estatísticas em tempo real
   const vaults = useMemo(() => {
-    return storedVaults.map(vault => {
+    return rawVaults.map(vault => {
       const isCurrent = vault.id === currentVaultId;
       // Contar canvases que pertencem a este vault
       const linkedCanvases = allCanvases.filter(c => {
@@ -124,57 +87,62 @@ export function useVaultRegistry() {
         documentCount: isCurrent ? getAllFiles().length : vault.documentCount || 0,
       };
     });
-  }, [storedVaults, currentVaultId, allCanvases, getAllFiles]);
+  }, [rawVaults, currentVaultId, allCanvases, getAllFiles]);
 
   const activeVault = useMemo(() => {
     return vaults.find(v => v.id === currentVaultId) || {
       id: currentVaultId || 'default-vault',
       name: currentVaultName || 'Meu Vault Local',
       storageType: currentStorageType,
-      updatedAt: Date.now(),
+      updatedAt: 0,
       canvasCount: allCanvases.filter(c => !c.vaultId || c.vaultId === currentVaultId).length,
       documentCount: getAllFiles().length,
       isDefault: currentVaultId === 'default-vault',
     };
   }, [vaults, currentVaultId, currentVaultName, currentStorageType, allCanvases, getAllFiles]);
 
-  // Adicionar novo vault ao registro
-  const registerVault = useCallback((newVault: RegisteredVault) => {
-    setStoredVaults(prev => {
-      const exists = prev.some(v => v.id === newVault.id);
-      const next = exists
-        ? prev.map(v => v.id === newVault.id ? { ...v, ...newVault } : v)
-        : [newVault, ...prev];
-      saveVaultsToStorage(next);
-      return next;
-    });
-  }, [saveVaultsToStorage]);
-
-  // Remover vault do registro
-  const removeVault = useCallback((vaultId: string) => {
-    if (vaultId === currentVaultId) {
-      alert('Não é possível remover o vault que está atualmente ativo.');
-      return;
-    }
-    setStoredVaults(prev => {
-      const next = prev.filter(v => v.id !== vaultId);
-      saveVaultsToStorage(next);
-      return next;
-    });
-  }, [currentVaultId, saveVaultsToStorage]);
-
   // Alternar para outro vault
   const switchVault = useCallback(async (targetVault: RegisteredVault, forcePicker = false): Promise<boolean> => {
     if (targetVault.id === currentVaultId) return true;
 
     if (targetVault.storageType === 'fsa') {
-      const success = await connectFSA(forcePicker);
+      const success = await connectFSA(targetVault.id, forcePicker, targetVault.name);
       return Boolean(success);
     } else {
       await connectIDB(targetVault.id, targetVault.name);
       return true;
     }
   }, [currentVaultId, connectFSA, connectIDB]);
+
+  // Remover vault do registro (com opção de excluir também os arquivos físicos do computador)
+  const removeVault = useCallback(async (vaultId: string, deleteDiskFolder: boolean = false): Promise<boolean> => {
+    const targetVault = rawVaults.find(v => v.id === vaultId);
+
+    // Se o vault a ser excluído for o que está atualmente ativo, alterna para outro vault
+    if (vaultId === currentVaultId) {
+      const otherVault = rawVaults.find(v => v.id !== vaultId) || DEFAULT_VAULT;
+      try {
+        await switchVault(otherVault);
+      } catch (err) {
+        console.warn('[useVaultRegistry] Falha ao alternar de vault antes de excluir ativo:', err);
+      }
+    }
+
+    // Se solicitada a exclusão física da pasta do computador
+    if (deleteDiskFolder) {
+      const physicalPath = targetVault?.path || (targetVault?.folderName && typeof window !== 'undefined' && window.electronAPI ? `D:\\RPG\\Campanhas\\${targetVault.folderName}` : undefined);
+      await FSAStorageProvider.deletePhysicalDirectory(vaultId, physicalPath);
+    }
+
+    // Limpar o handle salvo no IndexedDB se for FSA
+    if (vaultId.startsWith('fsa-') || vaultId === 'fsa-main') {
+      await FSAStorageProvider.removeSavedHandleFromIDB(vaultId);
+    }
+
+    // Remover do store Zustand e localStorage
+    removeVaultAction(vaultId);
+    return true;
+  }, [currentVaultId, rawVaults, switchVault, removeVaultAction]);
 
   // Renomear vault
   const renameVault = useCallback(async (vaultId: string, newName: string) => {
@@ -185,12 +153,8 @@ export function useVaultRegistry() {
       await setVaultName(trimmed);
     }
 
-    setStoredVaults(prev => {
-      const next = prev.map(v => v.id === vaultId ? { ...v, name: trimmed, updatedAt: Date.now() } : v);
-      saveVaultsToStorage(next);
-      return next;
-    });
-  }, [currentVaultId, setVaultName, saveVaultsToStorage]);
+    renameVaultAction(vaultId, trimmed);
+  }, [currentVaultId, setVaultName, renameVaultAction]);
 
   return {
     vaults,

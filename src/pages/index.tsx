@@ -248,14 +248,29 @@ export default function Dashboard() {
     setDeleteModal({ isOpen: false, canvas: null });
   };
 
-  // FSA Connection trigger
-  const handleTriggerConnectFSA = async () => {
+  // FSA Connection trigger: Reconectar o vault ativo atual
+  const handleReconnectActiveFSA = async () => {
+    try {
+      setIsConnectingFSA(true);
+      const success = await connectFSA(activeVaultId, true);
+      if (success) {
+        await refreshNodes();
+      }
+      return success;
+    } finally {
+      setIsConnectingFSA(false);
+    }
+  };
+
+  // FSA Connection trigger: Conectar uma NOVA pasta do Windows (gera novo vault ID)
+  const handleTriggerConnectNewFSA = async () => {
     try {
       setIsConnectingFSA(true);
       const success = await connectFSA();
       if (success) {
         await refreshNodes();
       }
+      return success;
     } finally {
       setIsConnectingFSA(false);
     }
@@ -272,6 +287,26 @@ export default function Dashboard() {
   const currentTheme = mounted ? theme : 'dark';
   const isLight = currentTheme === 'light';
 
+  // Guard de montagem para garantir hidratação SSR determinística e sem warnings
+  if (!mounted) {
+    return (
+      <>
+        <Head>
+          <title>Concha</title>
+          <meta name="description" content="Editor Markdown, base de conhecimento integrada e quadros de conexões do Concha." />
+        </Head>
+        <div 
+          suppressHydrationWarning
+          className="w-full h-full overflow-hidden flex flex-row select-none bg-[#17192A] text-[#F4F0E6] relative"
+        >
+          <div className="w-11 h-full bg-[#131524] border-r border-white/[0.07] shrink-0" />
+          <div className="w-full sm:w-[370px] lg:w-[380px] h-full bg-[#131524] border-r border-white/[0.07] shrink-0" />
+          <main className="flex-1 h-full bg-[#17192A] hidden md:block" />
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <Head>
@@ -279,12 +314,15 @@ export default function Dashboard() {
         <meta name="description" content="Editor Markdown, base de conhecimento integrada e quadros de conexões do Concha." />
       </Head>
 
-      <div className={clsx(
-        "w-full h-full overflow-hidden flex flex-row select-none transition-colors duration-200 relative",
-        isLight 
-          ? "bg-[#F4F0E6] text-[#17192A]" 
-          : "bg-[#17192A] text-[#F4F0E6]"
-      )}>
+      <div 
+        suppressHydrationWarning
+        className={clsx(
+          "w-full h-full overflow-hidden flex flex-row select-none transition-colors duration-200 relative",
+          isLight 
+            ? "bg-[#F4F0E6] text-[#17192A]" 
+            : "bg-[#17192A] text-[#F4F0E6]"
+        )}
+      >
         {/* ============================================================
             1. MENU LATERAL DE ÍCONES (RIBBON w-11 / 44px)
             ============================================================ */}
@@ -305,7 +343,7 @@ export default function Dashboard() {
           vaults={vaults}
           onRenameVault={renameVault}
           onSwitchVault={(targetVault: RegisteredVault, forcePicker?: boolean) => switchVault(targetVault, forcePicker)}
-          onConnectFSA={handleTriggerConnectFSA}
+          onConnectFSA={handleReconnectActiveFSA}
           onCreateVault={() => setIsCreateVaultModalOpen(true)}
           onRemoveVault={removeVault}
           onOpenSettings={() => setSettingsOpen(true)}
@@ -362,7 +400,7 @@ export default function Dashboard() {
       <CreateVaultModal
         isOpen={isCreateVaultModalOpen}
         onClose={() => setIsCreateVaultModalOpen(false)}
-        onConnectFSA={handleTriggerConnectFSA}
+        onConnectFSA={handleTriggerConnectNewFSA}
         onCreateIDB={connectIDB}
         onRegisterVault={registerVault}
       />

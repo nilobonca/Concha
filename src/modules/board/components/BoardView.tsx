@@ -19,6 +19,7 @@ import { SelectCanvasModal } from './modals/SelectCanvasModal';
 import { BoardVaultSearchModal } from './modals/BoardVaultSearchModal';
 import ContextMenu from '@/components/ContextMenu';
 import { StickyNote, Type, Music, Image as ImageIcon, FolderKanban, Search } from 'lucide-react';
+import { cleanLegacyPlaceholder, cleanDuplicateTitle } from '@/utils/cleanLegacyPlaceholder';
 
 interface BoardViewProps {
   boardId: string;
@@ -144,7 +145,7 @@ export const BoardView: React.FC<BoardViewProps> = ({
       worldPos,
       '#fef08a',
       note.name,
-      noteContent || `# ${note.name}\n\nNota vinculada do Vault: ${note.path}`,
+      noteContent || '',
       note.path
     );
   };
@@ -195,17 +196,17 @@ export const BoardView: React.FC<BoardViewProps> = ({
   }
 
   return (
-    <div className={`relative overflow-hidden font-sans transition-colors duration-200 ${
-      canvasTheme === 'light' ? "bg-[#F8F9FA] text-stone-900" : "bg-neutral-950 text-white"
-    } ${isEmbeddedInVault ? "w-full h-full" : "w-screen h-screen"}`}>
+    <div 
+      data-board-canvas="true"
+      className={`board-container relative overflow-hidden font-sans transition-colors duration-200 ${
+        canvasTheme === 'light' ? "bg-[#F8F9FA] text-stone-900" : "bg-neutral-950 text-white"
+      } ${isEmbeddedInVault ? "w-full h-full" : "w-screen h-screen"}`}>
       {/* Barra Superior */}
       <BoardHeader
         boardName={boardData.name}
         onUpdateName={updateBoardName}
         elementsCount={boardData.elements.length}
         connectionsCount={boardData.connections.length}
-        canvasTheme={canvasTheme}
-        onToggleTheme={toggleCanvasTheme}
         isEmbeddedInVault={isEmbeddedInVault}
         onCloseEmbedded={onCloseEmbedded}
         folderPath={folderPath}
@@ -328,11 +329,13 @@ export const BoardView: React.FC<BoardViewProps> = ({
             console.warn('Could not read dropped note content from vault:', err);
           }
 
+          const cleanedContent = cleanDuplicateTitle(cleanLegacyPlaceholder(noteContent), note.name);
+
           if (connectionsHook.pendingArrowContext) {
             createConnectedElement('note', {
               color: '#fef08a',
               title: note.name,
-              content: noteContent || `# ${note.name}\n\nNota vinculada do Vault: ${note.path}`,
+              content: cleanedContent,
               filePath: note.path,
             });
           } else {
@@ -340,7 +343,7 @@ export const BoardView: React.FC<BoardViewProps> = ({
               dropPlacementPosRef.current || undefined,
               '#fef08a',
               note.name,
-              noteContent || `# ${note.name}\n\nNota vinculada do Vault: ${note.path}`,
+              cleanedContent,
               note.path
             );
             dropPlacementPosRef.current = null;

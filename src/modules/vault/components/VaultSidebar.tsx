@@ -210,8 +210,15 @@ export const VaultSidebar: React.FC = () => {
 
   const { activeLayers, addLayer, updateLayer, deleteLayer } = useIDB();
 
-  // Canvases from IndexedDB
-  const allCanvases = useMemo(() => activeLayers.filter(l => l.isProjectMetadata), [activeLayers]);
+  // Canvases from IndexedDB pertencentes a este vault específico
+  const isDefaultVault = vaultId === 'default-vault' || !vaultId;
+  const allCanvases = useMemo(() => {
+    return activeLayers.filter(l => {
+      if (!l.isProjectMetadata) return false;
+      if (l.vaultId) return l.vaultId === vaultId;
+      return isDefaultVault;
+    });
+  }, [activeLayers, vaultId, isDefaultVault]);
   const generalCanvases = useMemo(() => allCanvases.filter(l => !l.folderPath), [allCanvases]);
 
   // New file / folder creation states
@@ -253,6 +260,7 @@ export const VaultSidebar: React.FC = () => {
 
   // Selected item in the file explorer
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const sidebarRef = useRef<HTMLDivElement>(null);
 
   // Synchronize selectedPath with activePath whenever activePath changes
   React.useEffect(() => {
@@ -350,6 +358,11 @@ export const VaultSidebar: React.FC = () => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Delete') return;
 
+      // O atalho Delete do teclado NUNCA deve excluir um canvas/quadro sob nenhuma hipótese!
+      if (selectedPath?.startsWith('canvas:') || activePath?.startsWith('canvas:')) {
+        return;
+      }
+
       const target = e.target as HTMLElement | null;
       const activeEl = document.activeElement as HTMLElement | null;
 
@@ -389,8 +402,29 @@ export const VaultSidebar: React.FC = () => {
         return;
       }
 
-      const targetPath = selectedPath || activePath;
-      if (!targetPath) return;
+      // NUNCA interceptar se a interação ocorreu no workspace principal, canvas de conexões ou editor
+      if (
+        target?.closest('main') ||
+        activeEl?.closest('main') ||
+        target?.closest('[data-board-canvas]') ||
+        activeEl?.closest('[data-board-canvas]') ||
+        target?.closest('[data-pane-container]') ||
+        activeEl?.closest('[data-pane-container]') ||
+        target?.closest('.board-container') ||
+        activeEl?.closest('.board-container')
+      ) {
+        return;
+      }
+
+      // O Delete do explorer só deve agir se o evento originou ou o foco está dentro da própria sidebar
+      const isInsideSidebar = 
+        Boolean(sidebarRef.current && (sidebarRef.current.contains(target) || sidebarRef.current.contains(activeEl)));
+      if (!isInsideSidebar) {
+        return;
+      }
+
+      const targetPath = selectedPath;
+      if (!targetPath || targetPath.startsWith('canvas:')) return;
 
       e.preventDefault();
       e.stopPropagation();
@@ -1705,6 +1739,7 @@ export const VaultSidebar: React.FC = () => {
 
   return (
     <div 
+      ref={sidebarRef}
       onContextMenu={handleSidebarContextMenu}
       style={{ 
         width: `${sidebarWidth}px`, 

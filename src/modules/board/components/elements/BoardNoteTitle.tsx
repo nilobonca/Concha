@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import clsx from 'clsx';
 
 export interface BoardNoteTitleProps {
@@ -11,45 +11,70 @@ export interface BoardNoteTitleProps {
 
 export const BoardNoteTitle: React.FC<BoardNoteTitleProps> = ({
   title,
-  isEditing = false,
-  themeBorder,
   onUpdateTitle,
   className,
 }) => {
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [draftTitle, setDraftTitle] = useState(title || '');
+
+  useEffect(() => {
+    setDraftTitle(title || '');
+  }, [title]);
+
+  const handleFinish = () => {
+    setIsRenaming(false);
+    if (draftTitle.trim() && draftTitle.trim() !== (title || '')) {
+      onUpdateTitle?.(draftTitle.trim());
+    }
+  };
+
   return (
     <div
+      style={{ top: -26, left: 6 }}
       className={clsx(
-        "w-full flex flex-col items-center justify-center pt-2.5 pb-1 px-8 select-none shrink-0 pointer-events-auto",
+        "absolute z-30 select-none pointer-events-auto flex items-center max-w-[calc(100%-12px)]",
         className
       )}
       onPointerDown={(e) => {
-        if (isEditing) e.stopPropagation();
+        if (isRenaming) e.stopPropagation();
+      }}
+      onClick={(e) => {
+        if (isRenaming) e.stopPropagation();
+      }}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        if (onUpdateTitle) {
+          setIsRenaming(true);
+        }
       }}
     >
-      {/* Nome da nota - Menor e centralizado */}
-      {isEditing ? (
+      {isRenaming ? (
         <input
           type="text"
-          value={title || ''}
+          autoFocus
+          value={draftTitle}
           placeholder="Título da nota..."
-          onChange={(e) => onUpdateTitle?.(e.target.value)}
-          onKeyDown={(e) => e.stopPropagation()}
-          className="text-xs font-semibold text-neutral-800 dark:text-neutral-100 bg-transparent border-b border-dashed border-neutral-400/80 outline-none text-center max-w-[160px] w-full px-1 py-0.5 transition-colors"
+          onChange={(e) => setDraftTitle(e.target.value)}
+          onBlur={handleFinish}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === 'Enter') {
+              handleFinish();
+            } else if (e.key === 'Escape') {
+              setDraftTitle(title || '');
+              setIsRenaming(false);
+            }
+          }}
+          className="text-xs font-medium text-stone-700 dark:text-neutral-200 bg-white/90 dark:bg-[#181822]/90 backdrop-blur-xs border-b border-[#1831D7] dark:border-[#7F95FF] outline-none px-1 py-0.5 rounded shadow-2xs min-w-[60px] max-w-[220px]"
         />
       ) : (
         <span
-          className="text-xs font-semibold text-neutral-700 dark:text-neutral-200 tracking-wide truncate max-w-[160px] text-center"
-          title={title || 'Sem título'}
+          className="text-xs font-medium text-stone-600 dark:text-neutral-400 truncate tracking-tight hover:text-stone-900 dark:hover:text-neutral-200 transition-colors cursor-text"
+          title={title ? `${title} (duplo clique para renomear)` : 'Sem título (duplo clique para renomear)'}
         >
           {title || 'Sem título'}
         </span>
       )}
-
-      {/* Divider menor que não encosta nas paredes da nota */}
-      <div
-        className="w-14 h-[1.5px] rounded-full mt-1.5 opacity-40 transition-colors"
-        style={{ backgroundColor: themeBorder || '#1831D7' }}
-      />
     </div>
   );
 };

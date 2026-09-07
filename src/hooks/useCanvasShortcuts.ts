@@ -176,6 +176,9 @@ export const useCanvasShortcuts = ({
       // Delete Selection
       if (isMatch(e, bindings.deleteSelection)) {
         if (selectedItemIds.size > 0) {
+          e.preventDefault();
+          e.stopPropagation();
+          e.stopImmediatePropagation?.();
           addToHistory('Excluir Seleção');
           selectedItemIds.forEach(id => {
             if (activePlayers.find(p => p.id === id)) deletePlayer(id);

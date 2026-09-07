@@ -101,9 +101,9 @@ export const VaultsLibraryPanelSection: React.FC<VaultsLibraryPanelSectionProps>
         {onCreateVault && (
           <button
             onClick={onCreateVault}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1831D7] hover:bg-[#1831D7]/90 text-[#F4F0E6] text-xs font-bold transition-all shadow-sm cursor-pointer active:scale-[0.97]"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#17192A] hover:bg-[#22253d] text-[#F4F0E6] border border-black/10 dark:border-white/10 hover:border-black/20 dark:hover:border-white/20 text-xs font-bold transition-all shadow-sm cursor-pointer active:scale-[0.97]"
           >
-            <Plus size={13} className="stroke-[2.5]" />
+            <Plus size={13} className="stroke-[2.5] text-[#7F95FF]" />
             <span>Novo Vault</span>
           </button>
         )}

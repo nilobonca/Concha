@@ -8,7 +8,7 @@
   "publish": {
     "provider": "github",
     "owner": "nilobonca",
-    "repo": "supercanvas"
+    "repo": "Concha"
   },
   "files": [
     "electron/**/*",
@@ -34,9 +34,9 @@
     "icon": "public/favicon.ico"
   },
   "nsis": {
-    "oneClick": false,
+    "artifactName": "${productName}-Setup-${version}.${ext}",
+    "oneClick": true,
     "perMachine": false,
-    "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
     "shortcutName": "Concha"

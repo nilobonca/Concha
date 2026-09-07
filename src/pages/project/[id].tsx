@@ -91,7 +91,7 @@ export default function ProjectCanvas() {
     const newNote: ActiveNote = {
       id: uuidv4(),
       type: 'note',
-      content: content || `# ${note.name}\n\nNota vinculada: ${note.path}`,
+      content: content || '',
       position: { x: targetX, y: targetY },
       width: 260,
       height: 140,

@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { 
   Database, 
@@ -19,7 +19,7 @@ export interface ActiveVaultPanelSectionProps {
   vaults?: RegisteredVault[];
   onSwitchVault?: (vault: RegisteredVault, forcePicker?: boolean) => Promise<boolean | void> | void;
   onCreateVault?: () => void;
-  onRemoveVault?: (id: string) => void;
+  onRemoveVault?: (id: string, deleteDiskFolder?: boolean) => Promise<boolean | void> | void;
   onRenameVault: (id: string, newName: string) => void;
   onConnectFSA: () => Promise<boolean | void> | void;
   onOpenSettings?: () => void;
@@ -88,11 +88,11 @@ export const ActiveVaultPanelSection: React.FC<ActiveVaultPanelSectionProps> = (
   };
 
   return (
-    <div className="space-y-4 animate-in fade-in duration-200">
+    <div className="flex-1 min-h-0 flex flex-col space-y-3 animate-in fade-in duration-200">
       {/* ============================================================
           HEADER & STATUS BADGE WITH 3-DOTS OPTIONS MENU
           ============================================================ */}
-      <div className="space-y-1.5">
+      <div className="shrink-0">
         <div className="flex items-center justify-between gap-2">
           <span className="text-[10px] font-mono uppercase tracking-[0.18em] text-[#1831D7] dark:text-[#7F95FF] font-bold">
             Vault Selecionado
@@ -129,16 +129,12 @@ export const ActiveVaultPanelSection: React.FC<ActiveVaultPanelSectionProps> = (
             />
           </div>
         </div>
-
-        <h3 className="text-base font-black tracking-tight text-stone-900 dark:text-[#F4F0E6]">
-          Configurações do Último Vault
-        </h3>
       </div>
 
       {/* ============================================================
           VAULT NAME (INLINE EDITABLE, SEM CAMINHO)
           ============================================================ */}
-      <div className="p-3 rounded-2xl border border-black/[0.08] dark:border-white/[0.08] bg-black/[0.02] dark:bg-white/[0.03]">
+      <div className="shrink-0 p-3 rounded-2xl border border-black/[0.08] dark:border-white/[0.08] bg-black/[0.02] dark:bg-white/[0.03]">
         <span className="text-[10px] uppercase font-bold text-stone-400 dark:text-[#B4D3F1]/70 tracking-wider">
           Nome do Vault
         </span>
@@ -154,37 +150,40 @@ export const ActiveVaultPanelSection: React.FC<ActiveVaultPanelSectionProps> = (
                 if (e.key === 'Escape') setIsEditingName(false);
               }}
               autoFocus
-              className="w-full bg-white dark:bg-black/60 border border-[#7F95FF] rounded-lg px-2.5 py-1 text-sm font-bold text-stone-900 dark:text-white outline-none"
+              className="w-full bg-white dark:bg-black/60 border border-[#7F95FF] rounded-lg px-2.5 py-1 text-base sm:text-lg font-bold text-stone-900 dark:text-white outline-none"
             />
             <button
               onClick={handleSaveName}
-              className="p-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer"
+              className="p-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer shrink-0"
               title="Salvar"
             >
-              <Check size={14} />
+              <Check size={16} />
             </button>
             <button
               onClick={() => {
                 setVaultNameInput(activeVault.name);
                 setIsEditingName(false);
               }}
-              className="p-1.5 rounded-lg bg-black/10 dark:bg-white/10 hover:bg-black/20 text-stone-700 dark:text-white transition-colors cursor-pointer"
+              className="p-1.5 rounded-lg bg-black/10 dark:bg-white/10 hover:bg-black/20 text-stone-700 dark:text-white transition-colors cursor-pointer shrink-0"
               title="Cancelar"
             >
-              <X size={14} />
+              <X size={16} />
             </button>
           </div>
         ) : (
           <div className="flex items-center justify-between gap-2 mt-1 group">
-            <h4 className="text-base font-extrabold text-stone-900 dark:text-white tracking-tight truncate">
+            <h4 
+              className="text-lg sm:text-xl font-black text-stone-900 dark:text-white tracking-tight truncate"
+              title={activeVault.name}
+            >
               {activeVault.name}
             </h4>
             <button
               onClick={() => setIsEditingName(true)}
-              className="p-1 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/10 text-stone-400 hover:text-stone-700 dark:hover:text-white transition-all cursor-pointer"
+              className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/10 text-stone-400 hover:text-stone-700 dark:hover:text-white transition-all cursor-pointer shrink-0"
               title="Renomear Vault"
             >
-              <Edit2 size={13} />
+              <Edit2 size={15} />
             </button>
           </div>
         )}
@@ -193,10 +192,12 @@ export const ActiveVaultPanelSection: React.FC<ActiveVaultPanelSectionProps> = (
       {/* ============================================================
           COMPACT METRICS: NOTAS SALVAS & CANVASES VINCULADOS
           ============================================================ */}
-      <VaultMetricsCompact 
-        documentCount={activeVault.documentCount} 
-        canvasCount={activeVault.canvasCount} 
-      />
+      <div className="shrink-0">
+        <VaultMetricsCompact 
+          documentCount={activeVault.documentCount} 
+          canvasCount={activeVault.canvasCount} 
+        />
+      </div>
 
       {/* ============================================================
           PRIMARY CTA: ABRIR VAULT NO EDITOR →
@@ -208,7 +209,7 @@ export const ActiveVaultPanelSection: React.FC<ActiveVaultPanelSectionProps> = (
           }
           router.push('/vault');
         }}
-        className="w-full group relative overflow-hidden rounded-xl p-3 bg-[#1831D7] text-[#F4F0E6] hover:bg-[#1831D7]/90 font-bold text-xs flex items-center justify-between transition-all duration-200 active:scale-[0.98] shadow-md shadow-[#1831D7]/20 cursor-pointer"
+        className="shrink-0 w-full group relative overflow-hidden rounded-xl p-2.5 bg-[#1831D7] text-[#F4F0E6] hover:bg-[#1831D7]/90 font-bold text-xs flex items-center justify-between transition-all duration-200 active:scale-[0.98] shadow-md shadow-[#1831D7]/20 cursor-pointer"
       >
         <div className="flex items-center gap-2">
           <SafeIcon size={16} className="text-[#B4D3F1]" />
@@ -221,16 +222,19 @@ export const ActiveVaultPanelSection: React.FC<ActiveVaultPanelSectionProps> = (
       </button>
 
       {/* ============================================================
-          INTEGRATED VAULTS LIST
+          INTEGRATED VAULTS LIST (EXPANDS DOWN TO NEAR WINDOW BOTTOM)
           ============================================================ */}
       {vaults && vaults.length > 0 && onSwitchVault && (
-        <VaultListSection
-          vaults={vaults}
-          activeVaultId={activeVault.id}
-          onSwitchVault={onSwitchVault}
-          onCreateVault={onCreateVault}
-          onRemoveVault={onRemoveVault}
-        />
+        <div className="flex-1 min-h-0 flex flex-col pt-3 sm:pt-4">
+          <VaultListSection
+            vaults={vaults}
+            activeVaultId={activeVault.id}
+            onSwitchVault={onSwitchVault}
+            onCreateVault={onCreateVault}
+            onRemoveVault={onRemoveVault}
+            onRenameVault={onRenameVault}
+          />
+        </div>
       )}
     </div>
   );

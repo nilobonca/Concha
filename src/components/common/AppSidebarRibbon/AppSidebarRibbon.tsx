@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { 
   Box, 
   Files, 
@@ -290,7 +290,7 @@ export const AppSidebarRibbon: React.FC<AppSidebarRibbonProps> = (props) => {
           isOpen={isCreateModalOpen}
           onClose={() => setIsCreateModalOpen(false)}
           onConnectFSA={async () => {
-            const ok = await vaultRegistry.connectFSA(true);
+            const ok = await vaultRegistry.connectFSA();
             if (ok) {
               await vaultStore.refreshNodes();
             }

@@ -294,28 +294,26 @@ export function useVaultRealGraphData(
           return lower.endsWith('.md') || f.fileType === 'note' || f.extension === 'md';
         });
 
-        // 2. Se o Vault não tiver notas e nem canvases
-        const isVaultEmpty = markdownFiles.length === 0;
+        // 2. Identificar Canvases associados a este Vault
+        const activeVaultId = activeVault?.id;
+        const isDefaultVault = Boolean(activeVault?.isDefault || activeVaultId === 'default-vault');
 
-        // Se o provider não estiver disponível e não houver arquivos, gerar card acolhedor imediatamente
-        if (isVaultEmpty) {
-          const emptyWelcomeCard: FeaturedLoreCardData = {
-            id: 'card-vault-empty-welcome',
-            title: 'Vault Inicializado',
-            category: 'Constelação de Lore',
-            tags: ['#rpgsa', '#vault', '#lore'],
-            excerpt: 'Crie ou importe suas primeiras anotações no editor para ver sua constelação de lore se expandir em tempo real!',
-            connectionsCount: 0,
-            accentColor: '#c084fc',
-            defaultPosition: DEFAULT_CARD_POSITIONS[0],
-            targetPath: '',
-            isCanvas: false,
-          };
+        const associatedCanvases = (canvases || []).filter(c => {
+          const isProjectRoot = c.isProjectMetadata || c.isProject || c.type === 'group' || (!c.parentId && c.canvasType);
+          if (!isProjectRoot) return false;
 
+          if (c.vaultId) {
+            return c.vaultId === activeVaultId;
+          }
+          return isDefaultVault;
+        });
+
+        // 3. Se o Vault não tiver notas e nem canvases, o grafo não deve mostrar nada e não ter nenhum card
+        if (markdownFiles.length === 0 && associatedCanvases.length === 0) {
           if (!isCancelled) {
             setNodes([]);
             setLinks([]);
-            setFeaturedCards([emptyWelcomeCard]);
+            setFeaturedCards([]);
             setIsLoading(false);
           }
           return;
@@ -405,19 +403,7 @@ export function useVaultRealGraphData(
 
         if (isCancelled) return;
 
-        // 4. Identificar e incluir Canvases associados a este Vault
-        const activeVaultId = activeVault?.id;
-        const isDefaultVault = Boolean(activeVault?.isDefault || activeVaultId === 'default-vault');
-
-        const associatedCanvases = (canvases || []).filter(c => {
-          const isProjectRoot = c.isProjectMetadata || c.isProject || c.type === 'group' || (!c.parentId && c.canvasType);
-          if (!isProjectRoot) return false;
-
-          if (c.vaultId) {
-            return c.vaultId === activeVaultId;
-          }
-          return isDefaultVault;
-        });
+        // 4. Canvases já associados identificados previamente
 
         // 5. Construir nós das notas
         const noteNodes: VaultGraphNode[] = scannedNotes.map(n => ({
@@ -526,61 +512,11 @@ export function useVaultRealGraphData(
           connectionsCount: adjacencyMap.get(node.id)?.size || 0,
         }));
 
-        // 8. Computar featuredCards:
-        // Selecionar até 3 notas com maior número de conexões
-        const sortedNotes = [...scannedNotes].sort((a, b) => {
-          const connA = adjacencyMap.get(a.file.path)?.size || 0;
-          const connB = adjacencyMap.get(b.file.path)?.size || 0;
-          if (connB !== connA) return connB - connA;
-          // Desempate por completude do resumo
-          return b.excerpt.length - a.excerpt.length;
-        });
-
-        const topNotes = sortedNotes.slice(0, 3);
-        let featuredCardsData: FeaturedLoreCardData[] = [];
-
-        if (topNotes.length === 0) {
-          featuredCardsData = [
-            {
-              id: 'card-vault-empty-welcome',
-              title: 'Vault Inicializado',
-              category: 'Constelação de Lore',
-              tags: ['#rpgsa', '#vault', '#lore'],
-              excerpt: 'Crie ou importe suas primeiras anotações no editor para ver sua constelação de lore se expandir em tempo real!',
-              connectionsCount: 0,
-              accentColor: '#c084fc',
-              defaultPosition: DEFAULT_CARD_POSITIONS[0],
-              targetPath: '',
-              isCanvas: false,
-            },
-          ];
-        } else {
-          featuredCardsData = topNotes.map((item, idx) => {
-            const connectionsCount = adjacencyMap.get(item.file.path)?.size || 0;
-            const position = DEFAULT_CARD_POSITIONS[idx] || {
-              x: 36 + idx * 80,
-              y: 72 + idx * 190,
-            };
-
-            return {
-              id: `card-${idx}-${item.title.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
-              title: item.title,
-              category: item.category,
-              tags: item.tags.length > 0 ? item.tags.slice(0, 3) : ['#lore', '#vault'],
-              excerpt: item.excerpt,
-              connectionsCount,
-              accentColor: item.accentColor,
-              defaultPosition: position,
-              targetPath: item.file.path,
-              isCanvas: false,
-            };
-          });
-        }
-
+        // 8. O grafo de conexões não exibe cards em momento algum
         if (!isCancelled) {
           setNodes(realNodes);
           setLinks(realLinks);
-          setFeaturedCards(featuredCardsData);
+          setFeaturedCards([]);
           setIsLoading(false);
         }
       } catch (err) {

@@ -108,11 +108,11 @@ export const CanvasesQuickPanelSection: React.FC<CanvasesQuickPanelSectionProps>
   }, [vaults, filteredCanvases]);
 
   return (
-    <div className="space-y-4 animate-in fade-in duration-200">
+    <div className="flex-1 min-h-0 flex flex-col space-y-4 animate-in fade-in duration-200">
       {/* ============================================================
           HEADER: TITLE, COUNTER & + NOVO CANVAS BUTTON
           ============================================================ */}
-      <div className="flex items-center justify-between gap-3">
+      <div className="shrink-0 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <h3 className="text-base font-black tracking-tight text-stone-900 dark:text-white">
             Baú de Canvas
@@ -137,7 +137,7 @@ export const CanvasesQuickPanelSection: React.FC<CanvasesQuickPanelSectionProps>
       {/* ============================================================
           SEARCH FIELD
           ============================================================ */}
-      <div className="relative">
+      <div className="shrink-0 relative">
         <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 dark:text-neutral-500" />
         <input
           type="text"
@@ -159,7 +159,7 @@ export const CanvasesQuickPanelSection: React.FC<CanvasesQuickPanelSectionProps>
       {/* ============================================================
           TAB SWITCHER: POR VAULT | TODOS
           ============================================================ */}
-      <div className="flex items-center gap-1 p-1 rounded-xl bg-black/[0.04] dark:bg-white/[0.04] border border-black/[0.06] dark:border-white/[0.06]">
+      <div className="shrink-0 flex items-center gap-1 p-1 rounded-xl bg-black/[0.04] dark:bg-white/[0.04] border border-black/[0.06] dark:border-white/[0.06]">
         <button
           onClick={() => setTabMode('by-vault')}
           className={clsx(
@@ -190,7 +190,7 @@ export const CanvasesQuickPanelSection: React.FC<CanvasesQuickPanelSectionProps>
       {/* ============================================================
           CONTENT CONTAINER (BY VAULT OR ALL)
           ============================================================ */}
-      <div className="space-y-3 max-h-[calc(100vh-320px)] overflow-y-auto pr-0.5">
+      <div className="flex-1 min-h-0 space-y-3 overflow-y-auto pr-1 custom-scrollbar">
         {filteredCanvases.length === 0 ? (
           <div className="text-center py-10 px-4 rounded-xl border border-dashed border-black/10 dark:border-white/10 text-stone-400 text-xs">
             Nenhum canvas encontrado.

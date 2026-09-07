@@ -17,7 +17,7 @@ export interface DashboardAdaptivePanelProps {
   onSwitchVault: (vault: RegisteredVault, forcePicker?: boolean) => Promise<boolean | void> | void;
   onConnectFSA: () => Promise<boolean | void> | void;
   onCreateVault?: () => void;
-  onRemoveVault?: (id: string) => void;
+  onRemoveVault?: (id: string, deleteDiskFolder?: boolean) => Promise<boolean | void> | void;
   onOpenSettings?: () => void;
   onExportBackup?: () => void;
   onImportBackup?: (file: File) => void;
@@ -64,7 +64,7 @@ export const DashboardAdaptivePanel: React.FC<DashboardAdaptivePanelProps> = ({
     <aside
       aria-label="Painel Lateral Adaptativo"
       className={clsx(
-        "w-full sm:w-[370px] lg:w-[380px] h-full min-h-screen shrink-0 z-20 flex flex-col p-4 sm:p-5 overflow-y-auto app-region-no-drag",
+        "w-full sm:w-[370px] lg:w-[380px] h-full shrink-0 z-20 flex flex-col p-4 sm:p-5 overflow-hidden app-region-no-drag",
         "border-r transition-colors duration-300",
         isLight
           ? "bg-[#F4F0E6] border-black/[0.08] shadow-[4px_0_24px_rgba(0,0,0,0.02)]"

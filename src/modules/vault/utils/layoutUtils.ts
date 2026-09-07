@@ -406,19 +406,25 @@ export function resizeSplitInTree(
 
 const STORAGE_KEY = 'vault_panes_layout';
 
-export function saveLayoutToStorage(layout: VaultLayoutNode): void {
+export function saveLayoutToStorage(layout: VaultLayoutNode, vaultId?: string): void {
   if (typeof window === 'undefined') return;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(layout));
+    const key = vaultId ? `${STORAGE_KEY}_${vaultId}` : STORAGE_KEY;
+    localStorage.setItem(key, JSON.stringify(layout));
   } catch (err) {
     console.error('Falha ao salvar layout do vault:', err);
   }
 }
 
-export function loadLayoutFromStorage(): VaultLayoutNode | null {
+export function loadLayoutFromStorage(vaultId?: string): VaultLayoutNode | null {
   if (typeof window === 'undefined') return null;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const key = vaultId ? `${STORAGE_KEY}_${vaultId}` : STORAGE_KEY;
+    let raw = localStorage.getItem(key);
+    // Fallback para chave legada apenas se for o vault padrão
+    if (!raw && (!vaultId || vaultId === 'default-vault')) {
+      raw = localStorage.getItem(STORAGE_KEY);
+    }
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (parsed && (parsed.type === 'leaf' || parsed.type === 'split')) {

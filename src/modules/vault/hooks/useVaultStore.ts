@@ -1,12 +1,14 @@
 import { create } from 'zustand';
 import Router from 'next/router';
 import type { Editor } from '@tiptap/react';
+import { v4 as uuidv4 } from 'uuid';
 import { Layer } from '@/interfaces/utils/indexedDB';
 import { IVaultStorageProvider } from '../storage/VaultStorageAdapter';
 import { FSAStorageProvider } from '../storage/FSAStorageProvider';
 import { IDBStorageProvider } from '../storage/IDBStorageProvider';
 import { VaultNode } from '../interfaces/vault';
 import { normalizeNoteTitle } from '../utils/wikilinkUtils';
+import { useVaultRegistryStore, RegisteredVault } from './useVaultRegistryStore';
 import Fuse from 'fuse.js';
 import { markdownToHtml, htmlToMarkdown } from '../utils/markdownConverter';
 import { parseFrontmatter, stringifyFrontmatter } from '../utils/frontmatterUtils';
@@ -93,7 +95,7 @@ interface VaultState {
 
   // Actions
   initializeStorage: () => Promise<void>;
-  connectFSA: (forcePicker?: boolean) => Promise<boolean>;
+  connectFSA: (targetVaultIdOrForcePicker?: string | boolean, forcePicker?: boolean, customName?: string) => Promise<boolean>;
   connectIDB: (vaultId?: string, vaultName?: string) => Promise<void>;
   disconnect: () => Promise<void>;
   refreshNodes: () => Promise<void>;
@@ -246,8 +248,8 @@ const initialDefaultLeaf = createPaneLeaf([], null);
 export const useVaultStore = create<VaultState>((set, get) => ({
   vaultId: 'default-vault',
   provider: null,
-  storageType: 'fsa',
-  vaultName: 'Vault',
+  storageType: 'idb',
+  vaultName: 'Meu Vault Local',
   isConnected: false,
   isLoading: true,
   isSaving: false,
@@ -325,7 +327,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
 
     const savedVaultName = typeof window !== 'undefined' ? localStorage.getItem('vault_custom_name') : null;
     const savedActiveId = (typeof window !== 'undefined' ? localStorage.getItem('vault_active_id') : null) || 'default-vault';
-    const storedLayout = loadLayoutFromStorage();
+    const storedLayout = loadLayoutFromStorage(savedActiveId);
     let effectiveLayout = storedLayout;
     let initialActivePaneId = '';
 
@@ -342,39 +344,66 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       initialActivePaneId = effectiveLayout.id;
     }
 
-    // Try restoring FSA first (previously authorized local folder)
-    const fsa = new FSAStorageProvider();
-    const restored = await fsa.init();
+    // Carregar lista de vaults registrados para identificar se o vault ativo é FSA ou IDB
+    const registeredVaults: RegisteredVault[] = useVaultRegistryStore.getState().vaults;
+    const currentVaultMeta = registeredVaults.find(v => v.id === savedActiveId);
+    const isFSA = currentVaultMeta ? currentVaultMeta.storageType === 'fsa' : (savedActiveId.startsWith('fsa-') || savedActiveId === 'fsa-main');
 
-    if (restored) {
-      const nodes = await fsa.listNodes();
+    if (isFSA) {
+      const fsa = new FSAStorageProvider(savedActiveId, currentVaultMeta?.name || savedVaultName || 'Pasta Windows (HD)');
+      const restored = await fsa.init();
+
+      if (restored) {
+        const nodes = await fsa.listNodes();
+        set({
+          provider: fsa,
+          storageType: 'fsa',
+          vaultId: savedActiveId,
+          vaultName: currentVaultMeta?.name || savedVaultName || fsa.vaultName,
+          isConnected: true,
+          isLoading: false,
+          nodes: sortNodes(nodes),
+          layout: effectiveLayout,
+          activePaneId: initialActivePaneId,
+        });
+
+        // Se havia documento ativo na folha inicial, valida se o arquivo realmente existe no vault
+        const firstPane = findPaneLeaf(effectiveLayout, initialActivePaneId);
+        if (firstPane?.activePath) {
+          if (firstPane.activePath.startsWith('canvas:')) {
+            const tab = firstPane.tabs.find(t => t.path === firstPane.activePath);
+            get().openCanvasTab(firstPane.activePath.replace('canvas:', ''), tab?.title, initialActivePaneId);
+          } else {
+            const allFiles = flattenTree(nodes);
+            const fileExists = allFiles.some(f => f.path.toLowerCase() === firstPane.activePath!.toLowerCase());
+            if (fileExists) {
+              get().openDocument(firstPane.activePath, initialActivePaneId);
+            } else {
+              get().closeTabInPane(initialActivePaneId, firstPane.activePath);
+            }
+          }
+        }
+        return;
+      }
+
+      // Se não restaurou o handle silenciosamente (ex: permissão do browser requer ação do usuário),
+      // mantém o vault ativo configurado sem quebrar o estado da UI
       set({
         provider: fsa,
         storageType: 'fsa',
-        vaultId: 'fsa-main',
-        vaultName: savedVaultName || fsa.vaultName,
-        isConnected: true,
+        vaultId: savedActiveId,
+        vaultName: currentVaultMeta?.name || savedVaultName || 'Pasta Windows (HD)',
+        isConnected: false,
         isLoading: false,
-        nodes: sortNodes(nodes),
+        nodes: [],
         layout: effectiveLayout,
         activePaneId: initialActivePaneId,
       });
-
-      // Se havia documento ativo na folha inicial, carrega seu conteúdo
-      const firstPane = findPaneLeaf(effectiveLayout, initialActivePaneId);
-      if (firstPane?.activePath) {
-        if (firstPane.activePath.startsWith('canvas:')) {
-          const tab = firstPane.tabs.find(t => t.path === firstPane.activePath);
-          get().openCanvasTab(firstPane.activePath.replace('canvas:', ''), tab?.title, initialActivePaneId);
-        } else {
-          get().openDocument(firstPane.activePath, initialActivePaneId);
-        }
-      }
       return;
     }
 
-    // Default fallback to IDB
-    const idb = new IDBStorageProvider(savedActiveId, savedVaultName || 'Meu Vault Local');
+    // Padrão: Inicializa via IDB Storage Provider (para IDB vaults isolados)
+    const idb = new IDBStorageProvider(savedActiveId, currentVaultMeta?.name || savedVaultName || 'Meu Vault Local');
     await idb.init();
     const nodes = await idb.listNodes();
 
@@ -382,7 +411,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       provider: idb,
       storageType: 'idb',
       vaultId: savedActiveId,
-      vaultName: savedVaultName || idb.vaultName,
+      vaultName: currentVaultMeta?.name || savedVaultName || idb.vaultName,
       isConnected: true,
       isLoading: false,
       nodes: sortNodes(nodes),
@@ -396,55 +425,84 @@ export const useVaultStore = create<VaultState>((set, get) => ({
         const tab = firstPane.tabs.find(t => t.path === firstPane.activePath);
         get().openCanvasTab(firstPane.activePath.replace('canvas:', ''), tab?.title, initialActivePaneId);
       } else {
-        get().openDocument(firstPane.activePath, initialActivePaneId);
+        const allFiles = flattenTree(nodes);
+        const fileExists = allFiles.some(f => f.path.toLowerCase() === firstPane.activePath!.toLowerCase());
+        if (fileExists) {
+          get().openDocument(firstPane.activePath, initialActivePaneId);
+        } else {
+          get().closeTabInPane(initialActivePaneId, firstPane.activePath);
+        }
       }
     }
   },
 
-  connectFSA: async (forcePicker = true) => {
+  connectFSA: async (targetVaultIdOrForcePicker?: string | boolean, forcePickerArg?: boolean, customName?: string): Promise<boolean> => {
     try {
-      const fsa = new FSAStorageProvider();
+      let targetVaultId: string | undefined = undefined;
+      let forcePicker = true;
+
+      if (typeof targetVaultIdOrForcePicker === 'string') {
+        targetVaultId = targetVaultIdOrForcePicker;
+        forcePicker = forcePickerArg !== undefined ? forcePickerArg : true;
+      } else if (typeof targetVaultIdOrForcePicker === 'boolean') {
+        forcePicker = targetVaultIdOrForcePicker;
+      }
+
+      const isNewConnection = !targetVaultId;
+      const effectiveVaultId = targetVaultId || `fsa-${uuidv4().slice(0, 8)}`;
+      const fsa = new FSAStorageProvider(effectiveVaultId);
       let connected = false;
 
-      // Se não for forçado a abrir o picker, tenta inicializar com o handle já salvo no IDB
-      if (!forcePicker) {
+      // Se for alternar para um vault existente e forcePicker for falso, tenta carregar o handle salvo
+      if (!forcePicker && !isNewConnection) {
         connected = await fsa.init();
         if (!connected) {
           return false;
         }
       } else {
-        // Se forcePicker for true, abre o seletor nativo do Windows
+        // Se forcePicker for true ou for uma nova conexão, abre o seletor nativo do Windows
         connected = await fsa.pickDirectory();
       }
 
       if (!connected) return false;
 
-      const folderVaultName = fsa.vaultName || 'Pasta Local (HD)';
+      const folderVaultName = customName || fsa.vaultName || 'Pasta Local (HD)';
       if (typeof window !== 'undefined') {
-        localStorage.setItem('vault_active_id', 'fsa-main');
+        localStorage.setItem('vault_active_id', effectiveVaultId);
         localStorage.setItem('vault_custom_name', folderVaultName);
       }
       set({ isLoading: true });
       const nodes = await fsa.listNodes();
-      const newLayout = createPaneLeaf([], null);
+      const vaultLayout = loadLayoutFromStorage(effectiveVaultId) || createPaneLeaf([], null);
+      const initialActivePaneId = getAllPanes(vaultLayout)[0]?.id || vaultLayout.id;
+      const initialPane = findPaneLeaf(vaultLayout, initialActivePaneId);
 
       set({
         provider: fsa,
         storageType: 'fsa',
-        vaultId: 'fsa-main',
+        vaultId: effectiveVaultId,
         vaultName: folderVaultName,
         isConnected: true,
         isLoading: false,
         nodes: sortNodes(nodes),
-        layout: newLayout,
-        activePaneId: newLayout.id,
+        layout: vaultLayout,
+        activePaneId: initialActivePaneId,
         documentCache: {},
-        tabs: [],
-        activePath: null,
+        tabs: initialPane?.tabs || [],
+        activePath: initialPane?.activePath || null,
         activeContent: '',
         isEditing: false
       });
-      saveLayoutToStorage(newLayout);
+      saveLayoutToStorage(vaultLayout, effectiveVaultId);
+
+      // Registra/sincroniza no registro centralizado de vaults sem sobrescrever os outros
+      useVaultRegistryStore.getState().syncCurrentVault({
+        id: effectiveVaultId,
+        name: folderVaultName,
+        storageType: 'fsa',
+        folderName: fsa.vaultName,
+      });
+
       return true;
     } catch (err) {
       console.error('Error connecting to local folder:', err);
@@ -464,7 +522,9 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     const idb = new IDBStorageProvider(vaultId, finalName);
     await idb.init();
     const nodes = await idb.listNodes();
-    const newLayout = createPaneLeaf([], null);
+    const vaultLayout = loadLayoutFromStorage(vaultId) || createPaneLeaf([], null);
+    const initialActivePaneId = getAllPanes(vaultLayout)[0]?.id || vaultLayout.id;
+    const initialPane = findPaneLeaf(vaultLayout, initialActivePaneId);
 
     set({
       provider: idb,
@@ -474,15 +534,22 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       isConnected: true,
       isLoading: false,
       nodes: sortNodes(nodes),
-      layout: newLayout,
-      activePaneId: newLayout.id,
+      layout: vaultLayout,
+      activePaneId: initialActivePaneId,
       documentCache: {},
-      tabs: [],
-      activePath: null,
+      tabs: initialPane?.tabs || [],
+      activePath: initialPane?.activePath || null,
       activeContent: '',
       isEditing: false
     });
-    saveLayoutToStorage(newLayout);
+    saveLayoutToStorage(vaultLayout, vaultId);
+
+    // Registra/sincroniza no registro centralizado de vaults
+    useVaultRegistryStore.getState().syncCurrentVault({
+      id: vaultId,
+      name: finalName,
+      storageType: 'idb',
+    });
   },
 
   disconnect: async () => {
@@ -543,7 +610,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     const { layout } = get();
     const { newLayout, newPaneId } = splitPaneInTree(layout, targetPaneId, tab, direction, position, sourcePaneId);
 
-    saveLayoutToStorage(newLayout);
+    saveLayoutToStorage(newLayout, get().vaultId);
     const newLeaf = findPaneLeaf(newLayout, newPaneId);
 
     set({
@@ -565,7 +632,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   closeTabInPane: (paneId: string, path: string) => {
     const { layout, activePaneId } = get();
     const { newLayout } = removeTabFromPane(layout, paneId, path);
-    saveLayoutToStorage(newLayout);
+    saveLayoutToStorage(newLayout, get().vaultId);
 
     // Se o painel ativo foi fechado, acha outro painel para ser ativo
     let nextActivePaneId = activePaneId;
@@ -606,7 +673,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       ...pane,
       activePath: path
     }));
-    saveLayoutToStorage(updated);
+    saveLayoutToStorage(updated, get().vaultId);
 
     const pane = findPaneLeaf(updated, paneId);
     set({
@@ -635,7 +702,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
         nextTabs.splice(idx, 0, tab);
         return { ...pane, tabs: nextTabs, activePath: tabPath };
       });
-      saveLayoutToStorage(updated);
+      saveLayoutToStorage(updated, get().vaultId);
       set({ layout: updated, activePaneId: sourcePaneId, draggedTab: null, dropPreview: null });
       return;
     }
@@ -643,7 +710,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     // Move entre painéis diferentes
     const { newLayout: layoutWithoutTab } = removeTabFromPane(layout, sourcePaneId, tabPath);
     const finalLayout = insertTabInPane(layoutWithoutTab, targetPaneId, tab, insertIndex);
-    saveLayoutToStorage(finalLayout);
+    saveLayoutToStorage(finalLayout, get().vaultId);
 
     const targetPane = findPaneLeaf(finalLayout, targetPaneId);
     set({
@@ -659,7 +726,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   resizeSplit: (splitId: string, newSizes: number[]) => {
     const { layout } = get();
     const updated = resizeSplitInTree(layout, splitId, newSizes);
-    saveLayoutToStorage(updated);
+    saveLayoutToStorage(updated, get().vaultId);
     set({ layout: updated });
   },
 
@@ -692,7 +759,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     const tab: VaultTab = { path, title, type: 'markdown' };
 
     const updatedLayout = insertTabInPane(layout, targetId, tab);
-    saveLayoutToStorage(updatedLayout);
+    saveLayoutToStorage(updatedLayout, get().vaultId);
 
     const targetPane = findPaneLeaf(updatedLayout, targetId);
 
@@ -714,7 +781,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     const tab: VaultTab = { path, title: cleanTitle, type };
 
     const updatedLayout = insertTabInPane(layout, targetId, tab);
-    saveLayoutToStorage(updatedLayout);
+    saveLayoutToStorage(updatedLayout, get().vaultId);
 
     const targetPane = findPaneLeaf(updatedLayout, targetId);
 
@@ -788,7 +855,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     const tab: VaultTab = { path, title: cleanTitle, type: 'canvas', canvasId };
 
     const updatedLayout = insertTabInPane(layout, targetId, tab);
-    saveLayoutToStorage(updatedLayout);
+    saveLayoutToStorage(updatedLayout, get().vaultId);
 
     const targetPane = findPaneLeaf(updatedLayout, targetId);
 
@@ -1029,7 +1096,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
 
     const contentToSave = (initialContent !== undefined)
       ? initialContent
-      : `# ${finalName.replace(/\.md$/, '')}\n\n`;
+      : '';
 
     await provider.createDocument(fullPath, contentToSave);
 
@@ -1131,7 +1198,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       }
     }
 
-    saveLayoutToStorage(updatedLayout);
+    saveLayoutToStorage(updatedLayout, get().vaultId);
 
     // Atualiza cache de documentos
     const nextDocCache = { ...documentCache };

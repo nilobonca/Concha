@@ -1,10 +1,16 @@
 import React, { useState, useEffect } from 'react';
+import clsx from 'clsx';
 import { useVaultStore } from '../hooks/useVaultStore';
 import { 
   Settings, X, HardDrive, Database, FolderSync, Check, 
   Edit2, Folder, RefreshCw, Info, ArrowRight, ShieldCheck, Laptop, Trash2
 } from 'lucide-react';
 import { SafeIcon } from '@/components/common/SafeIcon';
+import { 
+  getCanvasNoteSyncPref, 
+  setCanvasNoteSyncPref, 
+  CanvasNoteSyncPref 
+} from '../utils/canvasNoteSyncPref';
 
 export const VaultSettingsModal: React.FC = () => {
   const { 
@@ -23,6 +29,7 @@ export const VaultSettingsModal: React.FC = () => {
   const [nameSaved, setNameSaved] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(true);
+  const [syncPref, setSyncPref] = useState<CanvasNoteSyncPref>('ask');
 
   useEffect(() => {
     setNameInput(vaultName);
@@ -32,8 +39,14 @@ export const VaultSettingsModal: React.FC = () => {
     if (typeof window !== 'undefined') {
       const skip = localStorage.getItem('vault_skip_delete_confirm') === 'true';
       setConfirmDelete(!skip);
+      setSyncPref(getCanvasNoteSyncPref());
     }
   }, [settingsOpen]);
+
+  const handleSyncPrefChange = (val: CanvasNoteSyncPref) => {
+    setSyncPref(val);
+    setCanvasNoteSyncPref(val);
+  };
 
   const handleToggleConfirmDelete = (enabled: boolean) => {
     setConfirmDelete(enabled);
@@ -274,6 +287,68 @@ export const VaultSettingsModal: React.FC = () => {
                 />
                 <div className="w-9 h-5 bg-stone-300 peer-focus:outline-none rounded-full peer dark:bg-neutral-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#1831D7]"></div>
               </label>
+            </div>
+          </div>
+
+          {/* Section: Sincronização de Notas no Canvas */}
+          <div className="space-y-3 pt-2 border-t border-stone-200/80 dark:border-white/5">
+            <div className="flex items-center gap-2">
+              <FolderSync className="w-4 h-4 text-[#1831D7] dark:text-[#7F95FF]" />
+              <h3 className="text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-neutral-400">
+                Sincronização de Notas no Canvas
+              </h3>
+            </div>
+
+            <div className="p-3 rounded-lg bg-stone-50 dark:bg-white/[0.02] border border-stone-200/70 dark:border-white/5 space-y-2">
+              <div>
+                <span className="font-semibold text-xs text-stone-900 dark:text-neutral-100 block">
+                  Ao editar nota vinculada no Canvas
+                </span>
+                <p className="text-[11px] text-stone-500 dark:text-neutral-400 mt-0.5 leading-relaxed">
+                  Define o comportamento ao alterar o texto de uma nota vinculada diretamente na tela do canvas.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-3 gap-1.5 pt-1">
+                <button
+                  type="button"
+                  onClick={() => handleSyncPrefChange('ask')}
+                  className={clsx(
+                    "px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-all cursor-pointer text-center",
+                    syncPref === 'ask'
+                      ? "bg-white dark:bg-white/15 border-stone-400 dark:border-white/30 text-stone-900 dark:text-white shadow-xs font-semibold"
+                      : "border-stone-200 dark:border-white/5 text-stone-600 dark:text-neutral-400 hover:bg-stone-100 dark:hover:bg-white/5"
+                  )}
+                >
+                  Sempre perguntar
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleSyncPrefChange('always')}
+                  className={clsx(
+                    "px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-all cursor-pointer text-center",
+                    syncPref === 'always'
+                      ? "bg-white dark:bg-white/15 border-stone-400 dark:border-white/30 text-stone-900 dark:text-white shadow-xs font-semibold"
+                      : "border-stone-200 dark:border-white/5 text-stone-600 dark:text-neutral-400 hover:bg-stone-100 dark:hover:bg-white/5"
+                  )}
+                >
+                  Sempre atualizar
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleSyncPrefChange('never')}
+                  className={clsx(
+                    "px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-all cursor-pointer text-center",
+                    syncPref === 'never'
+                      ? "bg-white dark:bg-white/15 border-stone-400 dark:border-white/30 text-stone-900 dark:text-white shadow-xs font-semibold"
+                      : "border-stone-200 dark:border-white/5 text-stone-600 dark:text-neutral-400 hover:bg-stone-100 dark:hover:bg-white/5"
+                  )}
+                >
+                  Não atualizar
+                </button>
+              </div>
             </div>
           </div>
 

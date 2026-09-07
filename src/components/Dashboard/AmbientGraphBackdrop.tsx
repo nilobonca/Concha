@@ -145,17 +145,19 @@ export const AmbientGraphBackdrop: React.FC<AmbientGraphBackdropProps> = ({
           </div>
 
           {/* Connection Graph Navigation & Filter Controls */}
-          <GraphControlsOverlay
-            onZoomIn={zoomIn}
-            onZoomOut={zoomOut}
-            onResetView={resetView}
-            isPlaying={isPlaying}
-            onTogglePlayPause={togglePlayPause}
-            searchQuery={searchQuery}
-            onSearchChange={setSearchQuery}
-            nodeCount={nodeCount}
-            linkCount={linkCount}
-          />
+          {nodeCount > 0 && (
+            <GraphControlsOverlay
+              onZoomIn={zoomIn}
+              onZoomOut={zoomOut}
+              onResetView={resetView}
+              isPlaying={isPlaying}
+              onTogglePlayPause={togglePlayPause}
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              nodeCount={nodeCount}
+              linkCount={linkCount}
+            />
+          )}
         </div>
 
         {/* Centro: Área Livre de Drag da Janela */}
@@ -179,22 +181,24 @@ export const AmbientGraphBackdrop: React.FC<AmbientGraphBackdropProps> = ({
       </header>
 
       {/* Bottom Floating Ambient Hint */}
-      <footer className="absolute bottom-4 inset-x-6 z-30 flex items-center justify-between pointer-events-none text-[11px] text-neutral-500">
-        <div className="flex items-center gap-2 pointer-events-auto">
-          <Compass className="w-3.5 h-3.5 text-[#7F95FF]/70" />
-          <span className="hidden md:inline">
-            Arraste os nós para interagir • Arraste o fundo para mover • Roda do mouse para zoom • Clique para abrir
-          </span>
-          <span className="md:hidden">
-            Arraste os nós ou dê zoom no grafo
-          </span>
-        </div>
+      {nodeCount > 0 && (
+        <footer className="absolute bottom-4 inset-x-6 z-30 flex items-center justify-between pointer-events-none text-[11px] text-neutral-500">
+          <div className="flex items-center gap-2 pointer-events-auto">
+            <Compass className="w-3.5 h-3.5 text-[#7F95FF]/70" />
+            <span className="hidden md:inline">
+              Arraste os nós para interagir • Arraste o fundo para mover • Roda do mouse para zoom • Clique para abrir
+            </span>
+            <span className="md:hidden">
+              Arraste os nós ou dê zoom no grafo
+            </span>
+          </div>
 
-        <div className="flex items-center gap-2">
-          <span className="w-1.5 h-1.5 rounded-full bg-[#7F95FF]/50" />
-          <span className="text-[10px] tracking-wider uppercase">Grafo GPU 60fps</span>
-        </div>
-      </footer>
+          <div className="flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#7F95FF]/50" />
+            <span className="text-[10px] tracking-wider uppercase">Grafo GPU 60fps</span>
+          </div>
+        </footer>
+      )}
     </div>
   );
 };

@@ -109,6 +109,7 @@ export const BoardCanvasContainer: React.FC<BoardCanvasContainerProps> = ({
 
   // Iniciar Pan ao clicar no fundo vazio
   const handlePointerDown = (e: React.PointerEvent) => {
+    containerRef.current?.focus({ preventScroll: true });
     // Apenas se clicou diretamente no container ou no fundo da grade
     const target = e.target as HTMLElement;
     const isBackground = target === containerRef.current || target.classList.contains('canvas-background');
@@ -193,6 +194,7 @@ export const BoardCanvasContainer: React.FC<BoardCanvasContainerProps> = ({
   return (
     <div
       ref={containerRef}
+      tabIndex={-1}
       onContextMenu={handleContextMenu}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -271,7 +273,7 @@ export const BoardCanvasContainer: React.FC<BoardCanvasContainerProps> = ({
         }
       }}
       className={clsx(
-        "relative w-full h-full overflow-hidden select-none touch-none transition-colors duration-200",
+        "relative w-full h-full overflow-hidden select-none touch-none transition-colors duration-200 outline-none",
         canvasTheme === 'light' ? "bg-[#F8F9FA]" : "bg-neutral-950",
         isPanning ? "cursor-grabbing" : "cursor-default"
       )}

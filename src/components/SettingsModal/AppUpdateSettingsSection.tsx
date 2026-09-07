@@ -1,6 +1,6 @@
 import React from 'react';
 import clsx from 'clsx';
-import { RefreshCw, Sparkles, CheckCircle2, Download, ArrowUpCircle, AlertCircle, Laptop } from 'lucide-react';
+import { RefreshCw, Sparkles, CheckCircle2, Download, ArrowUpCircle, AlertCircle, Laptop, ExternalLink } from 'lucide-react';
 import { ConchaLogo } from '@/components/common/ConchaLogo';
 import { useAppUpdateStore } from '@/store/useAppUpdateStore';
 import { useThemeStore } from '@/store/themeStore';
@@ -20,6 +20,7 @@ export const AppUpdateSettingsSection: React.FC = () => {
     startDownload,
     quitAndInstall,
     openPrompt,
+    openReleasePage,
     isElectron
   } = useAppUpdateStore();
 
@@ -63,8 +64,8 @@ export const AppUpdateSettingsSection: React.FC = () => {
               {status === 'idle' && 'O aplicativo verifica novas versões automaticamente ao iniciar.'}
               {status === 'checking' && 'Buscando atualizações no repositório...'}
               {status === 'available' && `A versão v${availableVersion || ''} está disponível para download.`}
-              {status === 'downloading' && `Baixando atualização (${percent}% concluído)...`}
-              {status === 'downloaded' && 'Download concluído! Reinicie o aplicativo para aplicar.'}
+              {status === 'downloading' && `Baixando atualização em segundo plano (${percent}% concluído)...`}
+              {status === 'downloaded' && 'Atualização pronta! Reinicie o aplicativo para aplicar silenciosamente.'}
               {status === 'not-available' && 'Você já está usando a versão mais recente do Concha.'}
               {status === 'error' && (errorMessage || 'Não foi possível verificar atualizações.')}
             </p>
@@ -86,9 +87,10 @@ export const AppUpdateSettingsSection: React.FC = () => {
               <button
                 onClick={quitAndInstall}
                 className="flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/30 transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                title="Reiniciar e aplicar silenciosamente em segundo plano"
               >
                 <ArrowUpCircle className="w-4 h-4" />
-                Reiniciar e Instalar
+                Reiniciar Agora
               </button>
             ) : (
               <button
@@ -135,9 +137,18 @@ export const AppUpdateSettingsSection: React.FC = () => {
         )}
 
         {status === 'error' && (
-          <div className="mt-3 pt-3 border-t border-stone-200 dark:border-white/10 flex items-center gap-2 text-xs text-rose-500 dark:text-rose-400">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{errorMessage || 'Falha ao buscar atualizações. Tente novamente mais tarde.'}</span>
+          <div className="mt-3 pt-3 border-t border-stone-200 dark:border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-rose-500 dark:text-rose-400">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{errorMessage || 'Falha ao buscar atualizações. Tente novamente mais tarde.'}</span>
+            </div>
+            <button
+              onClick={openReleasePage}
+              className="inline-flex items-center gap-1 text-xs font-semibold underline underline-offset-2 text-[#1831D7] dark:text-[#7F95FF] hover:opacity-80 cursor-pointer self-start sm:self-auto shrink-0"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              Baixar pelo GitHub
+            </button>
           </div>
         )}
       </div>

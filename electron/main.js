@@ -141,6 +141,19 @@ ipcMain.handle('open-folder-in-explorer', async (event, folderPath) => {
   return false;
 });
 
+ipcMain.handle('open-external', async (event, url) => {
+  if (url && typeof url === 'string') {
+    try {
+      await shell.openExternal(url);
+      return true;
+    } catch (err) {
+      console.error('[RPGSA Electron] Failed to open external URL:', err);
+      return false;
+    }
+  }
+  return false;
+});
+
 ipcMain.handle('trash-item', async (event, targetPath) => {
   if (!targetPath) {
     return { success: false, error: 'Caminho não fornecido' };
@@ -239,6 +252,8 @@ autoUpdater.autoInstallOnAppQuit = true;
 autoUpdater.allowPrerelease = true;
 autoUpdater.allowDowngrade = false;
 
+let isDownloadingUpdate = false;
+
 // Helper to check if an update error is due to absence of releases on GitHub
 function isReleaseNotFoundError(err) {
   const errMsg = err ? (err.message || String(err)) : '';
@@ -253,11 +268,13 @@ function isReleaseNotFoundError(err) {
 }
 
 autoUpdater.on('checking-for-update', () => {
+  isDownloadingUpdate = false;
   console.log('[RPGSA Updater] Checking for update...');
   sendUpdateStatus({ status: 'checking' });
 });
 
 autoUpdater.on('update-available', (info) => {
+  isDownloadingUpdate = false;
   console.log('[RPGSA Updater] Update available:', info && info.version);
   sendUpdateStatus({
     status: 'available',
@@ -268,11 +285,13 @@ autoUpdater.on('update-available', (info) => {
 });
 
 autoUpdater.on('update-not-available', (info) => {
+  isDownloadingUpdate = false;
   console.log('[RPGSA Updater] Update not available. Current version is latest:', info && info.version);
   sendUpdateStatus({ status: 'not-available', version: (info && info.version) || app.getVersion() });
 });
 
 autoUpdater.on('download-progress', (progressObj) => {
+  isDownloadingUpdate = true;
   sendUpdateStatus({
     status: 'downloading',
     percent: Math.round(progressObj.percent),
@@ -281,21 +300,40 @@ autoUpdater.on('download-progress', (progressObj) => {
 });
 
 autoUpdater.on('update-downloaded', (info) => {
+  isDownloadingUpdate = false;
   console.log('[RPGSA Updater] Update downloaded:', info && info.version);
   sendUpdateStatus({ status: 'downloaded', version: info && info.version });
 });
 
 autoUpdater.on('error', (err) => {
   console.error('[RPGSA Updater] Update error:', err);
+  const errMsg = err ? (err.message || String(err)) : '';
+
+  // If error occurred during download, NEVER classify it as not-available
+  if (isDownloadingUpdate) {
+    isDownloadingUpdate = false;
+    let friendlyMsg = 'Falha ao baixar o arquivo da atualização.';
+    if (errMsg.includes('404')) {
+      friendlyMsg = 'O arquivo da atualização não foi encontrado no GitHub (Erro 404). Você pode baixá-lo diretamente pelo navegador.';
+    } else if (errMsg.includes('net::ERR_') || errMsg.includes('timeout') || errMsg.includes('ENOTFOUND')) {
+      friendlyMsg = 'Falha de conexão com a internet durante o download da atualização.';
+    } else if (errMsg) {
+      friendlyMsg = `Erro no download: ${errMsg}`;
+    }
+    sendUpdateStatus({ status: 'error', message: friendlyMsg });
+    return;
+  }
+
   if (isReleaseNotFoundError(err)) {
     console.log('[RPGSA Updater] No newer release feed found on GitHub. App is currently up to date.');
     sendUpdateStatus({ status: 'not-available', version: app.getVersion() });
     return;
   }
-  sendUpdateStatus({ status: 'error', message: err ? err.message : 'Falha na atualização' });
+  sendUpdateStatus({ status: 'error', message: err ? err.message : 'Falha na verificação de atualização' });
 });
 
 ipcMain.handle('check-for-updates', async () => {
+  isDownloadingUpdate = false;
   if (!isDev) {
     try {
       return await autoUpdater.checkForUpdates();
@@ -314,7 +352,7 @@ ipcMain.handle('check-for-updates', async () => {
     const checkGitHubLatest = () => {
       return new Promise((resolve) => {
         const req = https.get(
-          'https://api.github.com/repos/nilobonca/supercanvas/releases?per_page=5',
+          'https://api.github.com/repos/nilobonca/Concha/releases?per_page=5',
           {
             headers: {
               'User-Agent': 'Concha-Electron-App',
@@ -380,12 +418,18 @@ ipcMain.handle('check-for-updates', async () => {
 });
 
 ipcMain.handle('start-download-update', async () => {
+  isDownloadingUpdate = true;
   if (!isDev) {
     try {
       return await autoUpdater.downloadUpdate();
     } catch (err) {
+      isDownloadingUpdate = false;
       console.error('[RPGSA Updater] Download error:', err);
-      sendUpdateStatus({ status: 'error', message: err ? err.message : 'Falha ao baixar atualização' });
+      const errMsg = err ? (err.message || String(err)) : '';
+      const friendlyMsg = errMsg.includes('404')
+        ? 'Arquivo da atualização não encontrado no GitHub (404). Você pode baixá-lo diretamente pelo navegador.'
+        : (errMsg || 'Falha ao baixar atualização');
+      sendUpdateStatus({ status: 'error', message: friendlyMsg });
     }
   } else {
     // In dev mode, simulate realistic download progression for testing UI
@@ -403,7 +447,7 @@ ipcMain.handle('start-download-update', async () => {
 
 ipcMain.handle('quit-and-install', () => {
   if (!isDev) {
-    autoUpdater.quitAndInstall(false, true);
+    autoUpdater.quitAndInstall(true, true);
   } else {
     console.log('[RPGSA Updater Dev] Quit and install triggered in dev mode.');
     if (mainWindow && !mainWindow.isDestroyed()) {

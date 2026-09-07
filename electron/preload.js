@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Native Windows dialogs & File System
   selectDirectory: () => ipcRenderer.invoke('select-directory'),
   openFolderInExplorer: (folderPath) => ipcRenderer.invoke('open-folder-in-explorer', folderPath),
+  openExternal: (url) => ipcRenderer.invoke('open-external', url),
   trashItem: (filePath) => ipcRenderer.invoke('trash-item', filePath),
   getPathForFile: (file) => {
     try {

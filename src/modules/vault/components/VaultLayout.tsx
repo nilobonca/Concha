@@ -28,19 +28,32 @@ export const VaultLayout: React.FC = () => {
     templateModalOpen,
     setTemplateModalOpen,
     setCanvases,
+    vaultId,
+    vaultName,
   } = useVaultStore();
 
   const { activeLayers, addLayer } = useIDB();
 
-  // Sincronizar canvases do IDB no store do Vault para resolução de links/citações
+  // Sincronizar canvases do IDB pertencentes a este vault para resolução de links/citações
+  const isDefaultVault = vaultId === 'default-vault' || !vaultId;
   useEffect(() => {
-    const projectCanvases = activeLayers.filter(l => l.isProjectMetadata || (!l.parentId && l.canvasType));
+    const projectCanvases = activeLayers.filter(l => {
+      const isMeta = l.isProjectMetadata || (!l.parentId && l.canvasType);
+      if (!isMeta) return false;
+      if (l.vaultId) return l.vaultId === vaultId;
+      return isDefaultVault;
+    });
     setCanvases(projectCanvases);
-  }, [activeLayers, setCanvases]);
+  }, [activeLayers, setCanvases, vaultId, isDefaultVault]);
 
   const handleCreateBoardCanvas = () => {
     const newId = uuidv4();
-    const existingBoards = activeLayers.filter(l => l.isProjectMetadata && l.canvasType === 'board');
+    const existingBoards = activeLayers.filter(l => {
+      const isMeta = l.isProjectMetadata && l.canvasType === 'board';
+      if (!isMeta) return false;
+      if (l.vaultId) return l.vaultId === vaultId;
+      return isDefaultVault;
+    });
     let counter = 1;
     while (existingBoards.some(b => b.name === `Quadro de Conexões ${counter}`)) {
       counter++;
@@ -60,6 +73,8 @@ export const VaultLayout: React.FC = () => {
       order: 0,
       canvasType: 'board',
       folderPath: null,
+      vaultId: vaultId || 'default-vault',
+      vaultName: vaultName || 'Meu Vault',
     };
 
     addLayer(projectMeta);
@@ -89,9 +104,12 @@ export const VaultLayout: React.FC = () => {
   // Open note from URL parameter (e.g. from canvas pin click)
   useEffect(() => {
     if (!isLoading && router.query.doc && typeof router.query.doc === 'string') {
-      openOrCreateDocumentByTitle(router.query.doc);
+      const docToOpen = router.query.doc;
+      // Limpa imediatamente o parâmetro da URL para não reexecutar ao alternar vaults
+      router.replace('/vault', undefined, { shallow: true });
+      openOrCreateDocumentByTitle(docToOpen);
     }
-  }, [isLoading, router.query.doc, openOrCreateDocumentByTitle]);
+  }, [isLoading, router.query.doc, openOrCreateDocumentByTitle, router]);
 
   if (isLoading) {
     return (
