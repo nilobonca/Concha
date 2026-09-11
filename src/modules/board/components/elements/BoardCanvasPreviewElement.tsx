@@ -11,10 +11,11 @@ interface BoardCanvasPreviewElementProps {
   snappedHandle?: HandlePosition | null;
   zoom: number;
   canvasTheme?: 'dark' | 'light';
-  onSelect: () => void;
+  onSelect: (e?: React.MouseEvent | React.PointerEvent) => void;
   onUpdate: (updates: Partial<BoardElement>) => void;
   onDelete: () => void;
   onStartArrow: (handle: HandlePosition, e: React.PointerEvent) => void;
+  onDragStart?: () => void;
 }
 
 export const BoardCanvasPreviewElement: React.FC<BoardCanvasPreviewElementProps> = ({
@@ -27,6 +28,7 @@ export const BoardCanvasPreviewElement: React.FC<BoardCanvasPreviewElementProps>
   onUpdate,
   onDelete,
   onStartArrow,
+  onDragStart,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const data = (element.data || {}) as CanvasPreviewData;
@@ -51,7 +53,8 @@ export const BoardCanvasPreviewElement: React.FC<BoardCanvasPreviewElementProps>
     },
     onDragStart: ({ event }) => {
       event.stopPropagation();
-      onSelect();
+      onSelect(event as any);
+      onDragStart?.();
     },
   }, {
     drag: {
@@ -62,6 +65,7 @@ export const BoardCanvasPreviewElement: React.FC<BoardCanvasPreviewElementProps>
 
   return (
     <div
+      data-board-element="true"
       style={{
         position: 'absolute',
         left: element.x,
@@ -75,7 +79,7 @@ export const BoardCanvasPreviewElement: React.FC<BoardCanvasPreviewElementProps>
       onMouseLeave={() => setIsHovered(false)}
       onClick={(e) => {
         e.stopPropagation();
-        onSelect();
+        onSelect(e);
       }}
     >
       <ElementHandles

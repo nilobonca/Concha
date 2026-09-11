@@ -13,10 +13,11 @@ interface BoardAudioElementProps {
   isSelected: boolean;
   snappedHandle?: HandlePosition | null;
   zoom: number;
-  onSelect: () => void;
+  onSelect: (e?: React.MouseEvent | React.PointerEvent) => void;
   onUpdate: (updates: Partial<BoardElement>) => void;
   onDelete: () => void;
   onStartArrow: (handle: HandlePosition, e: React.PointerEvent) => void;
+  onDragStart?: () => void;
 }
 
 export const BoardAudioElement: React.FC<BoardAudioElementProps> = ({
@@ -28,6 +29,7 @@ export const BoardAudioElement: React.FC<BoardAudioElementProps> = ({
   onUpdate,
   onDelete,
   onStartArrow,
+  onDragStart,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const data = (element.data || {}) as AudioData;
@@ -222,7 +224,8 @@ export const BoardAudioElement: React.FC<BoardAudioElementProps> = ({
     },
     onDragStart: ({ event }) => {
       event.stopPropagation();
-      onSelect();
+      onSelect(event as any);
+      onDragStart?.();
     },
   }, {
     drag: {
@@ -233,6 +236,7 @@ export const BoardAudioElement: React.FC<BoardAudioElementProps> = ({
 
   return (
     <div
+      data-board-element="true"
       style={{
         position: 'absolute',
         left: element.x,
@@ -246,7 +250,7 @@ export const BoardAudioElement: React.FC<BoardAudioElementProps> = ({
       onMouseLeave={() => setIsHovered(false)}
       onClick={(e) => {
         e.stopPropagation();
-        onSelect();
+        onSelect(e);
       }}
     >
       <ElementHandles

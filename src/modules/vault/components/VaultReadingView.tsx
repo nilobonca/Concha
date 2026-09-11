@@ -8,7 +8,7 @@ interface VaultReadingViewProps {
 }
 
 export const VaultReadingView: React.FC<VaultReadingViewProps> = ({ content }) => {
-  const { openOrCreateDocumentByTitle } = useVaultStore();
+  const { openOrCreateDocumentByTitle, activePath, updateDocumentContent } = useVaultStore();
   const containerRef = useRef<HTMLDivElement>(null);
 
   const html = markdownToHtml(content);
@@ -44,9 +44,30 @@ export const VaultReadingView: React.FC<VaultReadingViewProps> = ({ content }) =
   }, [html]);
 
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const target = (e.target as HTMLElement).closest('[data-wikilink-title]');
-    if (target) {
-      const title = target.getAttribute('data-wikilink-title');
+    const target = e.target as HTMLElement;
+
+    // 1. Alternância interativa de caixas de tarefas no modo Leitura (estilo Obsidian)
+    if (target && target.tagName === 'INPUT' && (target as HTMLInputElement).type === 'checkbox') {
+      const checkbox = target as HTMLInputElement;
+      const taskLi = checkbox.closest('li[data-type="taskItem"]');
+      if (taskLi && activePath) {
+        taskLi.setAttribute('data-checked', checkbox.checked ? 'true' : 'false');
+        if (checkbox.checked) {
+          checkbox.setAttribute('checked', 'checked');
+        } else {
+          checkbox.removeAttribute('checked');
+        }
+        if (containerRef.current) {
+          updateDocumentContent(activePath, containerRef.current.innerHTML);
+        }
+        return;
+      }
+    }
+
+    // 2. Navegação por Wikilinks
+    const wikilinkTarget = target.closest('[data-wikilink-title]');
+    if (wikilinkTarget) {
+      const title = wikilinkTarget.getAttribute('data-wikilink-title');
       if (title) {
         e.preventDefault();
         openOrCreateDocumentByTitle(title);

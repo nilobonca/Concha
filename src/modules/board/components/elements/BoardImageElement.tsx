@@ -12,10 +12,11 @@ interface BoardImageElementProps {
   isSelected: boolean;
   snappedHandle?: HandlePosition | null;
   zoom: number;
-  onSelect: () => void;
+  onSelect: (e?: React.MouseEvent | React.PointerEvent) => void;
   onUpdate: (updates: Partial<BoardElement>) => void;
   onDelete: () => void;
   onStartArrow: (handle: HandlePosition, e: React.PointerEvent) => void;
+  onDragStart?: () => void;
 }
 
 export const BoardImageElement: React.FC<BoardImageElementProps> = ({
@@ -27,6 +28,7 @@ export const BoardImageElement: React.FC<BoardImageElementProps> = ({
   onUpdate,
   onDelete,
   onStartArrow,
+  onDragStart,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const data = (element.data || {}) as ImageData;
@@ -196,7 +198,8 @@ export const BoardImageElement: React.FC<BoardImageElementProps> = ({
     },
     onDragStart: ({ event }) => {
       event.stopPropagation();
-      onSelect();
+      onSelect(event as any);
+      onDragStart?.();
     },
   }, {
     drag: {
@@ -216,6 +219,7 @@ export const BoardImageElement: React.FC<BoardImageElementProps> = ({
 
   return (
     <div
+      data-board-element="true"
       style={{
         position: 'absolute',
         left: element.x,
@@ -229,7 +233,7 @@ export const BoardImageElement: React.FC<BoardImageElementProps> = ({
       onMouseLeave={() => setIsHovered(false)}
       onClick={(e) => {
         e.stopPropagation();
-        onSelect();
+        onSelect(e);
       }}
     >
       <ElementHandles

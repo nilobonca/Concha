@@ -13,9 +13,47 @@ export const VaultSlashMenu: React.FC<VaultSlashMenuProps> = ({
   items,
   selectedIndex,
   onSelect,
+  onClose,
   position
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close on outside interactions (pointerdown outside, scroll outside, window blur, escape)
+  useEffect(() => {
+    const handlePointerDown = (e: PointerEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+
+    const handleScroll = (e: Event) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+
+    const handleWindowBlur = () => {
+      onClose();
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown, true);
+    window.addEventListener('scroll', handleScroll, true);
+    window.addEventListener('blur', handleWindowBlur);
+    window.addEventListener('keydown', handleKeyDown, true);
+
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown, true);
+      window.removeEventListener('scroll', handleScroll, true);
+      window.removeEventListener('blur', handleWindowBlur);
+      window.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [onClose]);
 
   // Auto-scroll the active item into view
   useEffect(() => {
@@ -30,6 +68,7 @@ export const VaultSlashMenu: React.FC<VaultSlashMenuProps> = ({
     return (
       <div 
         ref={menuRef}
+        id="vault-slash-menu"
         style={position ? { top: `${position.top}px`, left: `${position.left}px` } : undefined}
         className="absolute z-50 w-72 bg-white dark:bg-[#16161D] border border-stone-200 dark:border-white/10 rounded-xl shadow-2xl p-3 text-xs text-stone-500 dark:text-neutral-400 select-none animate-in fade-in zoom-in-95 duration-100"
       >
@@ -41,6 +80,7 @@ export const VaultSlashMenu: React.FC<VaultSlashMenuProps> = ({
   return (
     <div
       ref={menuRef}
+      id="vault-slash-menu"
       style={position ? { top: `${position.top}px`, left: `${position.left}px` } : undefined}
       className="absolute z-50 w-72 max-h-80 overflow-y-auto bg-white dark:bg-[#16161D] border border-stone-200 dark:border-white/10 rounded-xl shadow-2xl p-1.5 custom-scrollbar select-none animate-in fade-in zoom-in-95 duration-100"
     >
@@ -57,6 +97,10 @@ export const VaultSlashMenu: React.FC<VaultSlashMenuProps> = ({
             <button
               key={cmd.id}
               data-selected={isSelected ? 'true' : 'false'}
+              onMouseDown={(e) => {
+                // Prevent editor blur so selection/cursor position is preserved
+                e.preventDefault();
+              }}
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();

@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback, ReactNode } from 'react';
 import { ViewportTransform, BoardElementType } from '../types';
 import { BoardGhostPreview } from './BoardGhostPreview';
+import { BoardSelectionMarquee, MarqueeBox } from './BoardSelectionMarquee';
 import { Minus, Plus, RotateCcw, Sun, Moon } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -13,6 +14,9 @@ interface BoardCanvasContainerProps {
   onPointerMoveOnCanvas?: (worldPos: { x: number; y: number }) => void;
   onPointerUpOnCanvas?: (worldPos: { x: number; y: number }, screenPos: { x: number; y: number }) => void;
   onCanvasClick?: (e: React.MouseEvent) => void;
+  onSelectionBoxStart?: (isShift: boolean) => void;
+  onSelectionBoxChange?: (box: MarqueeBox | null, isShift: boolean) => void;
+  onSelectionBoxEnd?: (box: MarqueeBox, isShift: boolean) => void;
   onDropNote?: (note: { path: string; name: string }, worldPos: { x: number; y: number }) => void;
   onDropVaultMedia?: (media: { path: string; name: string; fileType: 'audio' | 'image' }, worldPos: { x: number; y: number }) => void;
   onDropTool?: (toolType: BoardElementType | 'vault-search', worldPos: { x: number; y: number }) => void;
@@ -29,6 +33,9 @@ export const BoardCanvasContainer: React.FC<BoardCanvasContainerProps> = ({
   onPointerMoveOnCanvas,
   onPointerUpOnCanvas,
   onCanvasClick,
+  onSelectionBoxStart,
+  onSelectionBoxChange,
+  onSelectionBoxEnd,
   onDropNote,
   onDropVaultMedia,
   onDropTool,
@@ -40,6 +47,16 @@ export const BoardCanvasContainer: React.FC<BoardCanvasContainerProps> = ({
   const [dragWorldPos, setDragWorldPos] = useState<{ x: number; y: number } | null>(null);
   const [isDraggingVaultNote, setIsDraggingVaultNote] = useState(false);
   const panStartRef = useRef<{ startX: number; startY: number; vpX: number; vpY: number } | null>(null);
+  const [isSpacePressed, setIsSpacePressed] = useState(false);
+  const isSpacePressedRef = useRef(false);
+  const [marqueeBox, setMarqueeBox] = useState<MarqueeBox | null>(null);
+  const marqueeStartRef = useRef<{
+    clientX: number;
+    clientY: number;
+    worldPos: { x: number; y: number };
+    isShift: boolean;
+  } | null>(null);
+  const hasJustSelectedMarqueeRef = useRef(false);
 
   // Conversão de coordenadas tela -> mundo
   const screenToWorld = useCallback((screenX: number, screenY: number) => {
@@ -85,18 +102,171 @@ export const BoardCanvasContainer: React.FC<BoardCanvasContainerProps> = ({
     return () => container.removeEventListener('wheel', handleWheel);
   }, [setViewport]);
 
-  const isSpacePressedRef = useRef(false);
+  // Mobile Touch Gestures (Pinch-to-zoom, 1-finger pan & Double-tap)
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    let mode: 'none' | 'pan' | 'pinch' = 'none';
+    let lastDist = 0;
+    let lastCenter = { x: 0, y: 0 };
+    let lastSingleTouch = { x: 0, y: 0 };
+    let touchStartTime = 0;
+    let touchStartPos = { x: 0, y: 0 };
+    let lastTapTime = 0;
+    let lastTapPos = { x: 0, y: 0 };
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        mode = 'pinch';
+        const t0 = e.touches[0];
+        const t1 = e.touches[1];
+        lastDist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
+        lastCenter = {
+          x: (t0.clientX + t1.clientX) / 2,
+          y: (t0.clientY + t1.clientY) / 2,
+        };
+        return;
+      }
+
+      if (e.touches.length === 1) {
+        const target = e.target as HTMLElement;
+        const isBg = target === container || target.classList.contains('canvas-background');
+        if (!isBg) {
+          mode = 'none';
+          return;
+        }
+
+        mode = 'pan';
+        const t = e.touches[0];
+        lastSingleTouch = { x: t.clientX, y: t.clientY };
+        touchStartPos = { x: t.clientX, y: t.clientY };
+        touchStartTime = Date.now();
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (mode === 'pinch' && e.touches.length === 2) {
+        e.preventDefault();
+        const t0 = e.touches[0];
+        const t1 = e.touches[1];
+        const dist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
+        const currentCenter = {
+          x: (t0.clientX + t1.clientX) / 2,
+          y: (t0.clientY + t1.clientY) / 2,
+        };
+
+        if (lastDist > 0) {
+          const zoomRatio = dist / lastDist;
+          const rect = container.getBoundingClientRect();
+          const focalX = currentCenter.x - rect.left;
+          const focalY = currentCenter.y - rect.top;
+
+          setViewport(prev => {
+            const nextK = Math.min(Math.max(0.2, prev.k * zoomRatio), 3);
+            const worldX = (focalX - prev.x) / prev.k;
+            const worldY = (focalY - prev.y) / prev.k;
+            const dx = currentCenter.x - lastCenter.x;
+            const dy = currentCenter.y - lastCenter.y;
+            const nextX = focalX - worldX * nextK + dx;
+            const nextY = focalY - worldY * nextK + dy;
+            return { x: nextX, y: nextY, k: nextK };
+          });
+        }
+
+        lastDist = dist;
+        lastCenter = currentCenter;
+      } else if (mode === 'pan' && e.touches.length === 1) {
+        e.preventDefault();
+        const t = e.touches[0];
+        const dx = t.clientX - lastSingleTouch.x;
+        const dy = t.clientY - lastSingleTouch.y;
+        lastSingleTouch = { x: t.clientX, y: t.clientY };
+
+        setViewport(prev => ({
+          ...prev,
+          x: prev.x + dx,
+          y: prev.y + dy,
+        }));
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (mode === 'pinch' && e.touches.length === 1) {
+        mode = 'pan';
+        const t = e.touches[0];
+        lastSingleTouch = { x: t.clientX, y: t.clientY };
+        return;
+      }
+
+      if (e.touches.length === 0) {
+        if (mode === 'pan') {
+          const duration = Date.now() - touchStartTime;
+          const distMoved = Math.hypot(
+            lastSingleTouch.x - touchStartPos.x,
+            lastSingleTouch.y - touchStartPos.y
+          );
+
+          if (duration < 320 && distMoved < 15) {
+            const now = Date.now();
+            const timeSinceLastTap = now - lastTapTime;
+            const distFromLastTap = Math.hypot(
+              lastSingleTouch.x - lastTapPos.x,
+              lastSingleTouch.y - lastTapPos.y
+            );
+
+            if (timeSinceLastTap > 50 && timeSinceLastTap < 380 && distFromLastTap < 40) {
+              e.preventDefault();
+              const rect = container.getBoundingClientRect();
+              const tapX = lastSingleTouch.x - rect.left;
+              const tapY = lastSingleTouch.y - rect.top;
+
+              setViewport(prev => {
+                const targetK = prev.k > 1.25 ? 1 : Math.min(prev.k * 2, 3);
+                const worldX = (tapX - prev.x) / prev.k;
+                const worldY = (tapY - prev.y) / prev.k;
+                const nextX = tapX - worldX * targetK;
+                const nextY = tapY - worldY * targetK;
+                return { x: nextX, y: nextY, k: targetK };
+              });
+
+              lastTapTime = 0;
+            } else {
+              lastTapTime = now;
+              lastTapPos = { ...lastSingleTouch };
+            }
+          }
+        }
+        mode = 'none';
+        lastDist = 0;
+      }
+    };
+
+    container.addEventListener('touchstart', onTouchStart, { passive: false });
+    container.addEventListener('touchmove', onTouchMove, { passive: false });
+    container.addEventListener('touchend', onTouchEnd, { passive: false });
+    container.addEventListener('touchcancel', onTouchEnd, { passive: false });
+
+    return () => {
+      container.removeEventListener('touchstart', onTouchStart);
+      container.removeEventListener('touchmove', onTouchMove);
+      container.removeEventListener('touchend', onTouchEnd);
+      container.removeEventListener('touchcancel', onTouchEnd);
+    };
+  }, [setViewport]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
       if (e.code === 'Space' && tag !== 'input' && tag !== 'textarea') {
         isSpacePressedRef.current = true;
+        setIsSpacePressed(true);
       }
     };
     const handleKeyUp = (e: KeyboardEvent) => {
       if (e.code === 'Space') {
         isSpacePressedRef.current = false;
+        setIsSpacePressed(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -107,14 +277,24 @@ export const BoardCanvasContainer: React.FC<BoardCanvasContainerProps> = ({
     };
   }, []);
 
-  // Iniciar Pan ao clicar no fundo vazio
+  // Iniciar Pan (Espaço / Middle Click) ou Seleção em Área (Arraste no fundo vazio)
   const handlePointerDown = (e: React.PointerEvent) => {
     containerRef.current?.focus({ preventScroll: true });
-    // Apenas se clicou diretamente no container ou no fundo da grade
     const target = e.target as HTMLElement;
-    const isBackground = target === containerRef.current || target.classList.contains('canvas-background');
 
-    if (isBackground || e.button === 1 || isSpacePressedRef.current) {
+    // Detecta se o clique foi em um elemento interativo (cartão de nota/texto/áudio/imagem, botão, input, alça, etc.)
+    const isInteractive = Boolean(
+      target.closest('[data-board-element="true"]') ||
+      target.closest('button') ||
+      target.closest('input') ||
+      target.closest('textarea') ||
+      target.closest('.pointer-events-auto') ||
+      target.closest('[data-no-canvas-marquee="true"]')
+    );
+    const isBackground = !isInteractive;
+
+    // Pan via botão do meio ou barra de espaço pressionada
+    if (e.button === 1 || isSpacePressedRef.current) {
       panStartRef.current = {
         startX: e.clientX,
         startY: e.clientY,
@@ -122,6 +302,21 @@ export const BoardCanvasContainer: React.FC<BoardCanvasContainerProps> = ({
         vpY: viewport.y,
       };
       setIsPanning(true);
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      return;
+    }
+
+    // Seleção em área (Marquee) ao clicar e arrastar com botão esquerdo no fundo vazio
+    if (isBackground && e.button === 0) {
+      const worldPos = screenToWorld(e.clientX, e.clientY);
+      const isShift = Boolean(e.shiftKey || e.ctrlKey || e.metaKey);
+      marqueeStartRef.current = {
+        clientX: e.clientX,
+        clientY: e.clientY,
+        worldPos,
+        isShift,
+      };
+      onSelectionBoxStart?.(isShift);
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     }
   };
@@ -138,6 +333,25 @@ export const BoardCanvasContainer: React.FC<BoardCanvasContainerProps> = ({
       return;
     }
 
+    if (marqueeStartRef.current) {
+      const currentWorld = screenToWorld(e.clientX, e.clientY);
+      const screenDist = Math.hypot(
+        e.clientX - marqueeStartRef.current.clientX,
+        e.clientY - marqueeStartRef.current.clientY
+      );
+      if (screenDist > 4) {
+        const box: MarqueeBox = {
+          minX: Math.min(marqueeStartRef.current.worldPos.x, currentWorld.x),
+          minY: Math.min(marqueeStartRef.current.worldPos.y, currentWorld.y),
+          maxX: Math.max(marqueeStartRef.current.worldPos.x, currentWorld.x),
+          maxY: Math.max(marqueeStartRef.current.worldPos.y, currentWorld.y),
+        };
+        setMarqueeBox(box);
+        onSelectionBoxChange?.(box, marqueeStartRef.current.isShift);
+      }
+      return;
+    }
+
     if (onPointerMoveOnCanvas) {
       const worldPos = screenToWorld(e.clientX, e.clientY);
       onPointerMoveOnCanvas(worldPos);
@@ -150,6 +364,29 @@ export const BoardCanvasContainer: React.FC<BoardCanvasContainerProps> = ({
       panStartRef.current = null;
     }
 
+    if (marqueeStartRef.current) {
+      const currentWorld = screenToWorld(e.clientX, e.clientY);
+      const screenDist = Math.hypot(
+        e.clientX - marqueeStartRef.current.clientX,
+        e.clientY - marqueeStartRef.current.clientY
+      );
+      if (screenDist > 4) {
+        const box: MarqueeBox = {
+          minX: Math.min(marqueeStartRef.current.worldPos.x, currentWorld.x),
+          minY: Math.min(marqueeStartRef.current.worldPos.y, currentWorld.y),
+          maxX: Math.max(marqueeStartRef.current.worldPos.x, currentWorld.x),
+          maxY: Math.max(marqueeStartRef.current.worldPos.y, currentWorld.y),
+        };
+        hasJustSelectedMarqueeRef.current = true;
+        onSelectionBoxEnd?.(box, marqueeStartRef.current.isShift);
+        setTimeout(() => {
+          hasJustSelectedMarqueeRef.current = false;
+        }, 120);
+      }
+      marqueeStartRef.current = null;
+      setMarqueeBox(null);
+    }
+
     if (onPointerUpOnCanvas) {
       const worldPos = screenToWorld(e.clientX, e.clientY);
       onPointerUpOnCanvas(worldPos, { x: e.clientX, y: e.clientY });
@@ -160,6 +397,10 @@ export const BoardCanvasContainer: React.FC<BoardCanvasContainerProps> = ({
     if (isPanning) {
       setIsPanning(false);
       panStartRef.current = null;
+    }
+    if (marqueeStartRef.current) {
+      marqueeStartRef.current = null;
+      setMarqueeBox(null);
     }
   };
 
@@ -200,7 +441,12 @@ export const BoardCanvasContainer: React.FC<BoardCanvasContainerProps> = ({
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
-      onClick={onCanvasClick}
+      onClick={(e) => {
+        if (hasJustSelectedMarqueeRef.current) {
+          return;
+        }
+        onCanvasClick?.(e);
+      }}
       onDragOver={(e) => {
         const hasVaultNote = e.dataTransfer.types.includes('application/rpgsa-vault-note');
         const hasVaultAudio = e.dataTransfer.types.includes('application/rpgsa-vault-audio');
@@ -275,8 +521,15 @@ export const BoardCanvasContainer: React.FC<BoardCanvasContainerProps> = ({
       className={clsx(
         "relative w-full h-full overflow-hidden select-none touch-none transition-colors duration-200 outline-none",
         canvasTheme === 'light' ? "bg-[#F8F9FA]" : "bg-neutral-950",
-        isPanning ? "cursor-grabbing" : "cursor-default"
+        isPanning
+          ? "cursor-grabbing"
+          : isSpacePressed
+            ? "cursor-grab"
+            : marqueeBox
+              ? "cursor-crosshair"
+              : "cursor-default"
       )}
+      style={{ touchAction: 'none' }}
     >
       {/* Grade de Pontos Infinita */}
       <div
@@ -304,6 +557,9 @@ export const BoardCanvasContainer: React.FC<BoardCanvasContainerProps> = ({
         }}
       >
         {children}
+
+        {/* Retângulo de Seleção em Área */}
+        <BoardSelectionMarquee box={marqueeBox} />
 
         {/* Preview Fantasma do Elemento sendo arrastado */}
         {dragWorldPos && (draggingTool || isDraggingVaultNote) && (

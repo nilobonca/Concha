@@ -38,11 +38,19 @@ interface NoteItemProps {
 
 /**
  * Calcula cor de texto de alto contraste (preto ou branco)
- * com base na luminância YIQ da cor de fundo hex.
+ * com base na luminância YIQ da cor de fundo hex ou HSL.
  */
-function getContrastTextColor(hexColor?: string): string {
-  if (!hexColor || hexColor === 'transparent') return '#1c1917';
-  const clean = hexColor.replace('#', '');
+function getContrastTextColor(color?: string): string {
+  if (!color || color === 'transparent') return '#1c1917';
+
+  // Suporte para hsl() — cores pastel geradas pelo hexToPastelBg
+  const hslMatch = color.match(/hsl\(\s*(\d+)\s*,\s*(\d+)%?\s*,\s*(\d+)%?\s*\)/);
+  if (hslMatch) {
+    const l = parseInt(hslMatch[3], 10);
+    return l >= 70 ? '#1c1917' : '#f8fafc';
+  }
+
+  const clean = color.replace('#', '');
   if (clean.length === 6) {
     const r = parseInt(clean.substring(0, 2), 16);
     const g = parseInt(clean.substring(2, 4), 16);
@@ -53,14 +61,71 @@ function getContrastTextColor(hexColor?: string): string {
   return '#1c1917';
 }
 
+/**
+ * Converte uma cor hex para HSL e retorna uma versão pastel
+ * (alta luminosidade ~90%, saturação moderada ~55%).
+ */
+function hexToPastelBg(hex: string): string {
+  const clean = hex.replace('#', '');
+  if (clean.length !== 6) return '#F4F0E6';
+  const r = parseInt(clean.substring(0, 2), 16) / 255;
+  const g = parseInt(clean.substring(2, 4), 16) / 255;
+  const b = parseInt(clean.substring(4, 6), 16) / 255;
+
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+
+  let h = 0;
+  if (delta !== 0) {
+    if (max === r) h = ((g - b) / delta) % 6;
+    else if (max === g) h = (b - r) / delta + 2;
+    else h = (r - g) / delta + 4;
+    h = Math.round(h * 60);
+    if (h < 0) h += 360;
+  }
+
+  // Versão pastel: saturação suave, luminosidade alta
+  const pastelS = 55;
+  const pastelL = 92;
+
+  return `hsl(${h}, ${pastelS}%, ${pastelL}%)`;
+}
+
 const PRESET_COLORS = [
-  { name: 'Cobalto Oficial', hex: '#1831D7' },
-  { name: 'Soft Periwinkle', hex: '#7F95FF' },
-  { name: 'Sky Cyan', hex: '#52B1FF' },
-  { name: 'Ice Blue Pastel', hex: '#B4D3F1' },
-  { name: 'Marfim Claro', hex: '#F4F0E6' },
-  { name: 'Midnight Navy', hex: '#17192A' },
-  { name: 'Deep Midnight', hex: '#131524' },
+  // Vermelhos
+  { name: 'Vermelho', hex: '#E53935' },
+  { name: 'Coral', hex: '#FF6B6B' },
+  // Laranjas
+  { name: 'Laranja', hex: '#FB8C00' },
+  { name: 'Tangerina', hex: '#FF9F43' },
+  // Amarelos
+  { name: 'Amarelo', hex: '#FDD835' },
+  { name: 'Âmbar', hex: '#FFCA28' },
+  // Verdes
+  { name: 'Verde', hex: '#43A047' },
+  { name: 'Esmeralda', hex: '#2ECC71' },
+  { name: 'Menta', hex: '#26DE81' },
+  // Cianos
+  { name: 'Ciano', hex: '#00BCD4' },
+  { name: 'Turquesa', hex: '#00ACC1' },
+  // Azuis
+  { name: 'Cobalto', hex: '#1831D7' },
+  { name: 'Periwinkle', hex: '#7F95FF' },
+  { name: 'Celeste', hex: '#52B1FF' },
+  { name: 'Azul Royal', hex: '#1E88E5' },
+  // Roxos
+  { name: 'Roxo', hex: '#8E24AA' },
+  { name: 'Lavanda', hex: '#AB47BC' },
+  { name: 'Violeta', hex: '#7C4DFF' },
+  // Rosas
+  { name: 'Rosa', hex: '#EC407A' },
+  { name: 'Fúcsia', hex: '#E040FB' },
+  { name: 'Rose Gold', hex: '#F48FB1' },
+  // Neutros e Especiais
+  { name: 'Grafite', hex: '#455A64' },
+  { name: 'Marfim', hex: '#F4F0E6' },
+  { name: 'Midnight', hex: '#17192A' },
 ];
 
 export default function NoteItem({
@@ -390,9 +455,10 @@ export default function NoteItem({
     finishEditing();
   };
 
-  // Alterações de estilo
+  // Alterações de estilo — a cor escolhida define a borda, fundo = pastel automático
   const handleColorChange = (color: string) => {
-    onUpdate({ ...note, color, fillMode: 'filled', transparentBg: false });
+    const pastelBg = hexToPastelBg(color);
+    onUpdate({ ...note, color: pastelBg, borderColor: color, fillMode: 'filled', transparentBg: false });
   };
 
   const handleBorderColorChange = (borderColor: string) => {
@@ -423,12 +489,15 @@ export default function NoteItem({
   const isTransparent = note.fillMode === 'transparent';
 
   const bgColor = isFilled ? (note.color || '#F4F0E6') : 'transparent';
-  const borderColor = isOutlined 
-    ? (note.borderColor || '#7F95FF') 
-    : isTransparent 
-      ? (isSelected ? 'rgba(59, 130, 246, 0.4)' : 'transparent') 
-      : 'rgba(0,0,0,0.08)';
-  const borderWidth = isOutlined ? (note.borderWidth || 2) : 1;
+  const accentBorder = note.borderColor || '#7F95FF';
+  const borderColor = isFilled
+    ? accentBorder
+    : isOutlined 
+      ? accentBorder
+      : isTransparent 
+        ? (isSelected ? 'rgba(59, 130, 246, 0.4)' : 'transparent') 
+        : 'rgba(0,0,0,0.08)';
+  const borderWidth = (isFilled || isOutlined) ? (note.borderWidth || 2) : 1;
   const textColor = note.fontColor || (isFilled ? getContrastTextColor(bgColor) : undefined);
 
   return (
@@ -506,11 +575,10 @@ export default function NoteItem({
             >
               <Palette size={14} />
               <span 
-                className="absolute bottom-0.5 right-0.5 w-1.5 h-1.5 rounded-full border border-black/20 dark:border-white/20 shadow-2xs"
+                className="absolute bottom-0.5 right-0.5 w-1.5 h-1.5 rounded-full shadow-2xs"
                 style={{
-                  backgroundColor: isFilled ? (note.color || '#F4F0E6') : 'transparent',
-                  borderColor: isOutlined ? (note.borderColor || '#7F95FF') : undefined,
-                  borderWidth: isOutlined ? 2 : 1
+                  backgroundColor: note.borderColor || '#7F95FF',
+                  border: '1px solid rgba(0,0,0,0.15)',
                 }}
               />
             </button>
@@ -518,7 +586,7 @@ export default function NoteItem({
             {/* Menu Popover de Cores e Tipografia */}
             {showColorPicker && (
               <div 
-                className="absolute top-full left-1/2 -translate-x-1/2 mt-2 p-3 bg-white dark:bg-[#181822] rounded-2xl shadow-2xl border border-stone-200/90 dark:border-white/10 w-64 flex flex-col gap-3 z-50 text-stone-900 dark:text-neutral-100 text-xs animate-in fade-in zoom-in-95 duration-150"
+                className="absolute top-full left-1/2 -translate-x-1/2 mt-2 p-3 bg-white dark:bg-[#181822] rounded-2xl shadow-2xl border border-stone-200/90 dark:border-white/10 w-72 flex flex-col gap-3 z-50 text-stone-900 dark:text-neutral-100 text-xs animate-in fade-in zoom-in-95 duration-150"
                 onMouseDown={(e) => e.stopPropagation()}
               >
                 {/* Seleção do Modo de Preenchimento */}
@@ -567,19 +635,25 @@ export default function NoteItem({
                 {/* Paleta de Cores Pré-definidas */}
                 <div className="flex flex-col gap-1.5">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400 dark:text-neutral-500">
-                    {isOutlined ? 'Cor da Borda' : 'Cor de Fundo'}
+                    {isOutlined ? 'Cor da Borda' : 'Escolha a Cor'}
                   </span>
-                  <div className="grid grid-cols-5 gap-1.5">
+                  <div className="grid grid-cols-6 gap-1.5">
                     {PRESET_COLORS.map((c) => (
                       <button
                         key={c.hex}
                         type="button"
                         onClick={() => isOutlined ? handleBorderColorChange(c.hex) : handleColorChange(c.hex)}
                         className={cn(
-                          "w-7 h-7 rounded-lg border border-black/10 dark:border-white/10 transition-transform hover:scale-110 cursor-pointer flex items-center justify-center relative",
-                          (isOutlined ? note.borderColor === c.hex : note.color === c.hex) && "ring-2 ring-[#7F95FF] scale-105"
+                          "w-7 h-7 rounded-lg transition-transform hover:scale-110 cursor-pointer flex items-center justify-center relative",
+                          (note.borderColor === c.hex) && "ring-2 ring-[#7F95FF] scale-105"
                         )}
-                        style={{ backgroundColor: c.hex }}
+                        style={isFilled ? {
+                          backgroundColor: hexToPastelBg(c.hex),
+                          border: `2.5px solid ${c.hex}`,
+                        } : {
+                          backgroundColor: c.hex,
+                          border: '1px solid rgba(0,0,0,0.1)',
+                        }}
                         title={c.name}
                       />
                     ))}
@@ -590,7 +664,7 @@ export default function NoteItem({
                     >
                       <input
                         type="color"
-                        value={isOutlined ? (note.borderColor || '#7F95FF') : (note.color || '#F4F0E6')}
+                        value={note.borderColor || '#7F95FF'}
                         onChange={(e) => isOutlined ? handleBorderColorChange(e.target.value) : handleColorChange(e.target.value)}
                         className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                       />

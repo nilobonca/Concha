@@ -13,6 +13,7 @@ import {
   MoreVertical
 } from 'lucide-react';
 import { RegisteredVault } from '@/modules/vault/hooks/useVaultRegistry';
+import { useVaultStore } from '@/modules/vault/hooks/useVaultStore';
 import { isElectron, setWindowMode } from '@/utils/electronHelper';
 import { VaultContextMenu } from './VaultContextMenu';
 import { VaultDeleteConfirmationModal } from './VaultDeleteConfirmationModal';
@@ -82,6 +83,7 @@ export const VaultListSection: React.FC<VaultListSectionProps> = ({
 
   // Clique duplo (2x): Entra diretamente no editor do Vault
   const handleDoubleClickVault = async (vault: RegisteredVault) => {
+    useVaultStore.getState().startEnteringVault(vault.name);
     try {
       if (vault.id !== activeVaultId || vault.storageType === 'fsa') {
         await onSwitchVault(vault, false);
@@ -92,6 +94,7 @@ export const VaultListSection: React.FC<VaultListSectionProps> = ({
       await router.push('/vault');
     } catch (err) {
       console.error('[VaultListSection] Erro ao entrar no vault:', err);
+      useVaultStore.getState().finishEnteringVault();
     }
   };
 

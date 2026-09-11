@@ -8,7 +8,6 @@ import { VaultCommandPalette } from './VaultCommandPalette';
 import { VaultSettingsModal } from './VaultSettingsModal';
 import { VaultTemplateModal } from './VaultTemplateModal';
 import { VaultGraphView } from './VaultGraphView';
-import { RefreshCw } from 'lucide-react';
 import { useIDB } from '@/utils/indexedDB';
 import { Layer } from '@/interfaces/utils/indexedDB';
 import { v4 as uuidv4 } from 'uuid';
@@ -215,17 +214,13 @@ export const VaultLayout: React.FC = () => {
     }
   }, [isLoading, router.query.doc, openOrCreateDocumentByTitle, router]);
 
-  if (isLoading) {
-    return (
-      <div className="w-screen h-screen bg-[#17192A] flex flex-col items-center justify-center text-[#B4D3F1] gap-3">
-        <RefreshCw className="w-6 h-6 animate-spin text-[#7F95FF]" />
-        <span className="text-sm font-medium">Carregando Vault e arquivos...</span>
-      </div>
-    );
-  }
-
   return (
     <div className="w-full h-full flex flex-row bg-white text-stone-900 dark:bg-[#17192A] dark:text-[#F4F0E6] overflow-hidden select-none transition-colors duration-200 relative">
+      {/* Overlay suave durante carregamento inicial do vault (gerenciado pelo VaultLoadingModal) */}
+      {isLoading && (
+        <div className="absolute inset-0 bg-[#17192A]/20 dark:bg-black/30 backdrop-blur-[1px] z-40 pointer-events-none transition-opacity duration-300" />
+      )}
+
       {/* Controles de Janela do Windows no Canto Superior Direito (.exe Electron) */}
       <div 
         className="absolute top-0 right-0 h-9 z-50 flex items-center pr-1.5 select-none pointer-events-auto app-region-no-drag"

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import { BoardElement, BoardConnection, HandlePosition } from '../types';
 import { getHandleCoordinates, ActiveArrowDrag } from '../hooks/useBoardConnections';
 import { Trash2 } from 'lucide-react';
@@ -67,153 +67,179 @@ export const BoardArrowLayer: React.FC<BoardArrowLayerProps> = ({
     return map;
   }, [elements]);
 
+  // Posição exata do clique (em coordenadas do mundo canvas) para posicionar o botão de excluir
+  const [clickPos, setClickPos] = useState<{ x: number; y: number } | null>(null);
+  const svgRef = React.useRef<SVGSVGElement>(null);
+
+  // Converte coordenadas de tela para coordenadas SVG (mundo canvas)
+  const getWorldPosFromEvent = useCallback((e: React.MouseEvent<SVGElement>) => {
+    const svg = svgRef.current;
+    if (!svg) return { x: e.clientX, y: e.clientY };
+
+    const pt = svg.createSVGPoint();
+    pt.x = e.clientX;
+    pt.y = e.clientY;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return { x: e.clientX, y: e.clientY };
+
+    const worldPt = pt.matrixTransform(ctm.inverse());
+    return { x: worldPt.x, y: worldPt.y };
+  }, []);
+
+  const handleSelectConnection = useCallback((connId: string, e: React.MouseEvent<SVGElement>) => {
+    e.stopPropagation();
+    const pos = getWorldPosFromEvent(e);
+    setClickPos(pos);
+    onSelectConnection(connId);
+  }, [getWorldPosFromEvent, onSelectConnection]);
+
   return (
-    <div className="absolute inset-0 pointer-events-none z-20">
-      <svg className="w-full h-full overflow-visible">
-        <defs>
-          {/* Ponteira Padrão */}
-          <marker
-            id="board-arrow"
-            viewBox="0 0 10 10"
-            refX="8"
-            refY="5"
-            markerWidth="7"
-            markerHeight="7"
-            orient="auto-start-reverse"
-          >
-            <path d="M 0 1.5 L 10 5 L 0 8.5 z" fill="#818cf8" />
-          </marker>
+    <>
+      {/* Camada SVG de Conexões — sempre atrás dos elementos do board */}
+      <div className="absolute inset-0 pointer-events-none z-0">
+        <svg ref={svgRef} className="w-full h-full overflow-visible pointer-events-none">
+          <defs>
+            {/* Ponteira Padrão */}
+            <marker
+              id="board-arrow"
+              viewBox="0 0 10 10"
+              refX="8"
+              refY="5"
+              markerWidth="7"
+              markerHeight="7"
+              orient="auto-start-reverse"
+            >
+              <path d="M 0 1.5 L 10 5 L 0 8.5 z" fill="#818cf8" />
+            </marker>
 
-          {/* Ponteira Selecionada */}
-          <marker
-            id="board-arrow-selected"
-            viewBox="0 0 10 10"
-            refX="8"
-            refY="5"
-            markerWidth="8"
-            markerHeight="8"
-            orient="auto-start-reverse"
-          >
-            <path d="M 0 1.5 L 10 5 L 0 8.5 z" fill="#38bdf8" />
-          </marker>
+            {/* Ponteira Selecionada */}
+            <marker
+              id="board-arrow-selected"
+              viewBox="0 0 10 10"
+              refX="8"
+              refY="5"
+              markerWidth="8"
+              markerHeight="8"
+              orient="auto-start-reverse"
+            >
+              <path d="M 0 1.5 L 10 5 L 0 8.5 z" fill="#38bdf8" />
+            </marker>
 
-          {/* Ponteira Temporária do Arraste */}
-          <marker
-            id="board-arrow-drag"
-            viewBox="0 0 10 10"
-            refX="8"
-            refY="5"
-            markerWidth="7"
-            markerHeight="7"
-            orient="auto-start-reverse"
-          >
-            <path d="M 0 1.5 L 10 5 L 0 8.5 z" fill="#a5b4fc" />
-          </marker>
-        </defs>
+            {/* Ponteira Temporária do Arraste */}
+            <marker
+              id="board-arrow-drag"
+              viewBox="0 0 10 10"
+              refX="8"
+              refY="5"
+              markerWidth="7"
+              markerHeight="7"
+              orient="auto-start-reverse"
+            >
+              <path d="M 0 1.5 L 10 5 L 0 8.5 z" fill="#a5b4fc" />
+            </marker>
+          </defs>
 
-        {/* Conexões Fixas Persistidas */}
-        {connections.map((conn) => {
-          const fromEl = elementsMap.get(conn.fromId);
-          const toEl = elementsMap.get(conn.toId);
-          if (!fromEl || !toEl) return null;
+          {/* Conexões Fixas Persistidas */}
+          {connections.map((conn) => {
+            const fromEl = elementsMap.get(conn.fromId);
+            const toEl = elementsMap.get(conn.toId);
+            if (!fromEl || !toEl) return null;
 
-          const p1 = getHandleCoordinates(fromEl, conn.fromHandle);
-          const p2 = getHandleCoordinates(toEl, conn.toHandle);
+            const p1 = getHandleCoordinates(fromEl, conn.fromHandle);
+            const p2 = getHandleCoordinates(toEl, conn.toHandle);
 
-          const { path } = computeBezierCurve(p1, conn.fromHandle, p2, conn.toHandle);
-          const isSelected = selectedConnectionId === conn.id;
+            const { path } = computeBezierCurve(p1, conn.fromHandle, p2, conn.toHandle);
+            const isSelected = selectedConnectionId === conn.id;
 
-          return (
-            <g key={conn.id} className="group pointer-events-auto">
-              {/* Hitbox Invisível mais larga para facilitar clique */}
+            return (
+              <g key={conn.id} className="group pointer-events-auto">
+                {/* Hitbox Invisível mais larga para facilitar clique */}
+                <path
+                  d={path}
+                  fill="none"
+                  stroke="transparent"
+                  strokeWidth={20}
+                  className="cursor-pointer"
+                  onClick={(e) => handleSelectConnection(conn.id, e)}
+                />
+
+                {/* Linha Visível da Seta */}
+                <path
+                  d={path}
+                  fill="none"
+                  stroke={isSelected ? "#38bdf8" : (conn.color || "#818cf8")}
+                  strokeWidth={isSelected ? 3.5 : 2.5}
+                  strokeDasharray={conn.style === 'dashed' ? "6,4" : undefined}
+                  markerEnd={`url(#${isSelected ? "board-arrow-selected" : "board-arrow"})`}
+                  className="transition-colors duration-150 group-hover:stroke-sky-400 cursor-pointer"
+                  onClick={(e) => handleSelectConnection(conn.id, e)}
+                />
+              </g>
+            );
+          })}
+
+          {/* Seta Dinâmica do Arraste Ativo */}
+          {activeDrag && (
+            <g>
               <path
-                d={path}
+                d={
+                  computeBezierCurve(
+                    activeDrag.startPos,
+                    activeDrag.sourceHandle,
+                    activeDrag.currentPos,
+                    activeDrag.snappedTarget ? activeDrag.snappedTarget.handle : undefined
+                  ).path
+                }
                 fill="none"
-                stroke="transparent"
-                strokeWidth={20}
-                className="cursor-pointer"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onSelectConnection(conn.id);
-                }}
-              />
-
-              {/* Linha Visível da Seta */}
-              <path
-                d={path}
-                fill="none"
-                stroke={isSelected ? "#38bdf8" : (conn.color || "#818cf8")}
-                strokeWidth={isSelected ? 3.5 : 2.5}
-                strokeDasharray={conn.style === 'dashed' ? "6,4" : undefined}
-                markerEnd={`url(#${isSelected ? "board-arrow-selected" : "board-arrow"})`}
-                className="transition-colors duration-150 group-hover:stroke-sky-400 cursor-pointer"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onSelectConnection(conn.id);
-                }}
+                stroke="#a5b4fc"
+                strokeWidth={2.5}
+                strokeDasharray="6,4"
+                markerEnd="url(#board-arrow-drag)"
+                className="animate-pulse"
               />
             </g>
-          );
-        })}
+          )}
+        </svg>
+      </div>
 
-        {/* Seta Dinâmica do Arraste Ativo */}
-        {activeDrag && (
-          <g>
-            <path
-              d={
-                computeBezierCurve(
-                  activeDrag.startPos,
-                  activeDrag.sourceHandle,
-                  activeDrag.currentPos,
-                  activeDrag.snappedTarget ? activeDrag.snappedTarget.handle : undefined
-                ).path
-              }
-              fill="none"
-              stroke="#a5b4fc"
-              strokeWidth={2.5}
-              strokeDasharray="6,4"
-              markerEnd="url(#board-arrow-drag)"
-              className="animate-pulse"
-            />
-          </g>
-        )}
-      </svg>
-
-      {/* Botão de exclusão no ponto médio da conexão selecionada */}
-      {selectedConnectionId && (() => {
+      {/* Botão de exclusão posicionado exatamente onde o clique foi registrado */}
+      {selectedConnectionId && clickPos && (() => {
         const conn = connections.find(c => c.id === selectedConnectionId);
         if (!conn) return null;
         const fromEl = elementsMap.get(conn.fromId);
         const toEl = elementsMap.get(conn.toId);
         if (!fromEl || !toEl) return null;
 
-        const p1 = getHandleCoordinates(fromEl, conn.fromHandle);
-        const p2 = getHandleCoordinates(toEl, conn.toHandle);
-        const { mid } = computeBezierCurve(p1, conn.fromHandle, p2, conn.toHandle);
-
         return (
           <div
-            style={{
-              position: 'absolute',
-              left: mid.x,
-              top: mid.y,
-              transform: 'translate(-50%, -50%)',
-            }}
-            className="pointer-events-auto z-40"
+            className="absolute inset-0 pointer-events-none"
+            style={{ zIndex: 60 }}
           >
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onDeleteConnection(conn.id);
+            <div
+              style={{
+                position: 'absolute',
+                left: clickPos.x,
+                top: clickPos.y,
+                transform: 'translate(-50%, -50%)',
               }}
-              className="p-1.5 bg-neutral-900 border border-sky-500 rounded-full text-red-400 hover:text-red-300 hover:bg-red-500/20 shadow-lg transition-transform hover:scale-110 flex items-center justify-center"
-              title="Excluir conexão"
+              className="pointer-events-auto"
             >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeleteConnection(conn.id);
+                  setClickPos(null);
+                }}
+                className="p-1.5 bg-neutral-900 border border-sky-500 rounded-full text-red-400 hover:text-red-300 hover:bg-red-500/20 shadow-lg transition-transform hover:scale-110 flex items-center justify-center"
+                title="Excluir conexão"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         );
       })()}
-    </div>
+    </>
   );
 };
+

@@ -578,40 +578,93 @@ mark {
 }
 
 /* TipTap Task List styling (Obsidian style) */
-ul[data-type="taskList"] {
+ul[data-type="taskList"],
+.prose ul[data-type="taskList"],
+.tiptap ul[data-type="taskList"],
+.board-note-preview ul[data-type="taskList"] {
   list-style: none !important;
   padding-left: 0 !important;
-  margin: 0.5rem 0 !important;
+  margin: 0.35rem 0 !important;
 }
-ul[data-type="taskList"] li {
+
+ul[data-type="taskList"] ul[data-type="taskList"],
+.prose ul[data-type="taskList"] ul[data-type="taskList"],
+.tiptap ul[data-type="taskList"] ul[data-type="taskList"],
+.board-note-preview ul[data-type="taskList"] ul[data-type="taskList"] {
+  padding-left: 1.5rem !important;
+  margin-top: 0.25rem !important;
+}
+
+ul[data-type="taskList"] li,
+.prose ul[data-type="taskList"] li,
+.tiptap ul[data-type="taskList"] li,
+.board-note-preview ul[data-type="taskList"] li {
   display: flex !important;
   align-items: flex-start !important;
-  gap: 0.6rem !important;
-  margin: 0.35rem 0 !important;
+  gap: 0.55rem !important;
+  margin-top: 0.25rem !important;
+  margin-bottom: 0.25rem !important;
   padding-left: 0 !important;
 }
-ul[data-type="taskList"] li::before {
+
+ul[data-type="taskList"] li::before,
+.prose ul[data-type="taskList"] li::before,
+.tiptap ul[data-type="taskList"] li::before,
+.board-note-preview ul[data-type="taskList"] li::before {
   display: none !important;
 }
-ul[data-type="taskList"] li > label {
+
+ul[data-type="taskList"] li > label,
+.prose ul[data-type="taskList"] li > label,
+.tiptap ul[data-type="taskList"] li > label,
+.board-note-preview ul[data-type="taskList"] li > label {
   user-select: none;
-  display: inline-flex;
-  align-items: center;
-  margin-top: 0.22rem;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  height: 1.7rem !important;
+  line-height: 1.7 !important;
+  margin: 0 !important;
+  padding: 0 !important;
   cursor: pointer;
   flex-shrink: 0;
 }
-ul[data-type="taskList"] li > label input[type="checkbox"] {
+
+ul[data-type="taskList"] li > label input[type="checkbox"],
+.prose ul[data-type="taskList"] li > label input[type="checkbox"],
+.tiptap ul[data-type="taskList"] li > label input[type="checkbox"],
+.board-note-preview ul[data-type="taskList"] li > label input[type="checkbox"] {
   cursor: pointer;
-  width: 1.05rem;
-  height: 1.05rem;
-  accent-color: #9333ea;
-  border-radius: 0.3rem;
+  width: 1.05rem !important;
+  height: 1.05rem !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  accent-color: #1831D7;
+  border-radius: 0.25rem;
+  vertical-align: middle;
 }
-ul[data-type="taskList"] li > div {
+
+ul[data-type="taskList"] li > div,
+.prose ul[data-type="taskList"] li > div,
+.tiptap ul[data-type="taskList"] li > div,
+.board-note-preview ul[data-type="taskList"] li > div {
   flex: 1 1 auto;
+  min-width: 0;
 }
-ul[data-type="taskList"] li[data-checked="true"] > div > p {
+
+ul[data-type="taskList"] li > div > p,
+.prose ul[data-type="taskList"] li > div > p,
+.tiptap ul[data-type="taskList"] li > div > p,
+.board-note-preview ul[data-type="taskList"] li > div > p {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  line-height: 1.7 !important;
+}
+
+ul[data-type="taskList"] li[data-checked="true"] > div > p,
+.prose ul[data-type="taskList"] li[data-checked="true"] > div > p,
+.tiptap ul[data-type="taskList"] li[data-checked="true"] > div > p,
+.board-note-preview ul[data-type="taskList"] li[data-checked="true"] > div > p {
   text-decoration: line-through;
   opacity: 0.55;
   transition: opacity 0.2s ease, text-decoration 0.2s ease;

@@ -15,6 +15,7 @@ import {
 } from '../types';
 import { useBoardStorage } from './useBoardStorage';
 import { useBoardConnections, getFacingHandle, getOppositeHandle } from './useBoardConnections';
+import { useBoardHistory } from './useBoardHistory';
 import { useVaultStore } from '@/modules/vault/hooks/useVaultStore';
 import { cleanLegacyPlaceholder, cleanDuplicateTitle } from '@/utils/cleanLegacyPlaceholder';
 
@@ -53,8 +54,25 @@ export function useBoardCanvas(boardId: string, initialName?: string, folderPath
         return next;
       });
     } else {
-      setSelectedElementIds(new Set([id]));
+      // Se o elemento já estiver na seleção múltipla, mantemos o grupo ativo para permitir o arraste conjunto
+      setSelectedElementIds(prev => {
+        if (prev.has(id) && prev.size > 1) {
+          return prev;
+        }
+        return new Set([id]);
+      });
     }
+  }, []);
+
+  const selectElementsInArea = useCallback((ids: string[], isAdditive = false) => {
+    setSelectedElementIds(prev => {
+      if (isAdditive) {
+        const next = new Set(prev);
+        ids.forEach(id => next.add(id));
+        return next;
+      }
+      return new Set(ids);
+    });
   }, []);
 
   const clearSelection = useCallback(() => {
@@ -72,8 +90,50 @@ export function useBoardCanvas(boardId: string, initialName?: string, folderPath
   const [canvasModalOpen, setCanvasModalOpen] = useState(false);
   const modalPlacementPos = useRef<{ x: number; y: number } | null>(null);
 
+  // Histórico isolado do Quadro de Conexões (Board)
+  const {
+    addToHistory,
+    undo: boardUndo,
+    redo: boardRedo,
+    canUndo,
+    canRedo,
+  } = useBoardHistory();
+
+  // Executar Undo do Board
+  const handleUndo = useCallback(() => {
+    if (editingElementId) return;
+    const prevSnapshot = boardUndo({ elements: boardData.elements, connections: boardData.connections });
+    if (prevSnapshot) {
+      persistBoard(prev => ({
+        ...prev,
+        elements: prevSnapshot.elements,
+        connections: prevSnapshot.connections,
+        updatedAt: new Date().toISOString(),
+      }), true);
+      const existingIds = new Set(prevSnapshot.elements.map(el => el.id));
+      setSelectedElementIds(prev => new Set(Array.from(prev).filter(id => existingIds.has(id))));
+    }
+  }, [boardUndo, boardData.elements, boardData.connections, editingElementId, persistBoard]);
+
+  // Executar Redo do Board
+  const handleRedo = useCallback(() => {
+    if (editingElementId) return;
+    const nextSnapshot = boardRedo({ elements: boardData.elements, connections: boardData.connections });
+    if (nextSnapshot) {
+      persistBoard(prev => ({
+        ...prev,
+        elements: nextSnapshot.elements,
+        connections: nextSnapshot.connections,
+        updatedAt: new Date().toISOString(),
+      }), true);
+      const existingIds = new Set(nextSnapshot.elements.map(el => el.id));
+      setSelectedElementIds(prev => new Set(Array.from(prev).filter(id => existingIds.has(id))));
+    }
+  }, [boardRedo, boardData.elements, boardData.connections, editingElementId, persistBoard]);
+
   // Manipulação de conexões
   const setConnections = useCallback((updater: (prev: BoardConnection[]) => BoardConnection[]) => {
+    addToHistory({ elements: boardData.elements, connections: boardData.connections });
     persistBoard(prev => {
       const updatedConnections = updater(prev.connections);
       return {
@@ -82,7 +142,7 @@ export function useBoardCanvas(boardId: string, initialName?: string, folderPath
         updatedAt: new Date().toISOString(),
       };
     }, true);
-  }, [persistBoard]);
+  }, [addToHistory, boardData.elements, boardData.connections, persistBoard]);
 
   // Criar elemento do mesmo tipo de origem e conectar ao soltar seta no espaço vazio
   const handleAutoSpawnAndConnect = useCallback(async (
@@ -192,6 +252,8 @@ export function useBoardCanvas(boardId: string, initialName?: string, folderPath
       color: '#818cf8',
     };
 
+    addToHistory({ elements: boardData.elements, connections: boardData.connections });
+
     persistBoard(prev => ({
       ...prev,
       elements: [...prev.elements, newElement],
@@ -200,7 +262,7 @@ export function useBoardCanvas(boardId: string, initialName?: string, folderPath
     }), true);
 
     setSelectedElementId(newElement.id);
-  }, [boardId, persistBoard, setSelectedElementId]);
+  }, [addToHistory, boardData.elements, boardData.connections, boardId, persistBoard, setSelectedElementId]);
 
   const connectionsHook = useBoardConnections(
     boardData.elements,
@@ -241,6 +303,7 @@ export function useBoardCanvas(boardId: string, initialName?: string, folderPath
 
   // Excluir elemento (e conexões vinculadas)
   const deleteElement = useCallback((id: string) => {
+    addToHistory({ elements: boardData.elements, connections: boardData.connections });
     persistBoard(prev => {
       const updatedElements = prev.elements.filter(el => el.id !== id);
       const updatedConnections = prev.connections.filter(
@@ -261,10 +324,11 @@ export function useBoardCanvas(boardId: string, initialName?: string, folderPath
       }
       return prev;
     });
-  }, [persistBoard]);
+  }, [addToHistory, boardData.elements, boardData.connections, persistBoard]);
 
   const deleteSelectedElements = useCallback(() => {
     if (selectedElementIds.size === 0) return;
+    addToHistory({ elements: boardData.elements, connections: boardData.connections });
     const idsToDelete = new Set(selectedElementIds);
     persistBoard(prev => {
       const updatedElements = prev.elements.filter(el => !idsToDelete.has(el.id));
@@ -279,7 +343,7 @@ export function useBoardCanvas(boardId: string, initialName?: string, folderPath
       };
     }, true);
     setSelectedElementIds(new Set());
-  }, [persistBoard, selectedElementIds]);
+  }, [addToHistory, boardData.elements, boardData.connections, persistBoard, selectedElementIds]);
 
   // Atualizar nome do board
   const updateBoardName = useCallback((name: string) => {
@@ -292,6 +356,7 @@ export function useBoardCanvas(boardId: string, initialName?: string, folderPath
 
   // Adicionar elemento genérico
   const addElement = useCallback((element: Omit<BoardElement, 'boardId'>) => {
+    addToHistory({ elements: boardData.elements, connections: boardData.connections });
     const id = element.id || uuidv4();
     let newEl: BoardElement;
 
@@ -316,7 +381,7 @@ export function useBoardCanvas(boardId: string, initialName?: string, folderPath
 
     setSelectedElementId(id);
     return newEl!;
-  }, [boardId, persistBoard, setSelectedElementId]);
+  }, [addToHistory, boardData.elements, boardData.connections, boardId, persistBoard, setSelectedElementId]);
 
   // Criar Nota (com criação automática e vinculação no Vault)
   const createNote = useCallback(async (
@@ -539,6 +604,24 @@ export function useBoardCanvas(boardId: string, initialName?: string, folderPath
         return;
       }
 
+      // Undo/Redo no Canvas do Quadro
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation?.();
+        handleUndo();
+        return;
+      }
+
+      if (((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') ||
+          ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && e.shiftKey)) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation?.();
+        handleRedo();
+        return;
+      }
+
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedElementIds.size > 0) {
           e.preventDefault();
@@ -556,6 +639,7 @@ export function useBoardCanvas(boardId: string, initialName?: string, folderPath
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
         if (selectedElementIds.size > 0) {
           e.preventDefault();
+          addToHistory({ elements: boardData.elements, connections: boardData.connections });
           const step = e.shiftKey ? 50 : 10;
           const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
           const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
@@ -583,7 +667,7 @@ export function useBoardCanvas(boardId: string, initialName?: string, folderPath
 
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [connectionsHook, deleteSelectedElements, selectedElementIds, boardData.elements, editingElementId, persistBoard]);
+  }, [addToHistory, connectionsHook, deleteSelectedElements, handleRedo, handleUndo, selectedElementIds, boardData.elements, boardData.connections, editingElementId, persistBoard]);
 
   // Observa renomeação de notas no Vault para atualizar elementos do canvas
   useEffect(() => {
@@ -659,6 +743,7 @@ export function useBoardCanvas(boardId: string, initialName?: string, folderPath
     selectedElementIds,
     setSelectedElementIds,
     handleSelectElement,
+    selectElementsInArea,
     clearSelection,
     deleteSelectedElements,
     editingElementId,
@@ -683,5 +768,10 @@ export function useBoardCanvas(boardId: string, initialName?: string, folderPath
     canvasModalOpen,
     setCanvasModalOpen,
     modalPlacementPos,
+    addToHistory,
+    handleUndo,
+    handleRedo,
+    canUndo,
+    canRedo,
   };
 }

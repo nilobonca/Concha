@@ -1,5 +1,5 @@
 import React from 'react';
-import { StickyNote, Type, Search, HelpCircle } from 'lucide-react';
+import { StickyNote, Type, Search, HelpCircle, Undo2, Redo2 } from 'lucide-react';
 import { BoardElementType } from '../types';
 import clsx from 'clsx';
 
@@ -9,6 +9,10 @@ interface BoardToolbarProps {
   onOpenVaultSearch: () => void;
   onToolDragStart?: (tool: BoardElementType | 'vault-search') => void;
   onToolDragEnd?: () => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
 }
 
 export const BoardToolbar: React.FC<BoardToolbarProps> = ({
@@ -17,6 +21,10 @@ export const BoardToolbar: React.FC<BoardToolbarProps> = ({
   onOpenVaultSearch,
   onToolDragStart,
   onToolDragEnd,
+  onUndo,
+  onRedo,
+  canUndo = false,
+  canRedo = false,
 }) => {
   const [showHint, setShowHint] = React.useState(false);
 
@@ -93,6 +101,42 @@ export const BoardToolbar: React.FC<BoardToolbarProps> = ({
         </button>
 
         <div className="w-[1px] h-5 bg-black/10 dark:bg-white/10 mx-1" />
+
+        {/* Desfazer (Undo) */}
+        {onUndo && (
+          <button
+            type="button"
+            onClick={onUndo}
+            disabled={!canUndo}
+            className={clsx(
+              "p-2 rounded-xl transition-all",
+              canUndo
+                ? "hover:bg-stone-100 dark:hover:bg-white/10 text-stone-700 dark:text-neutral-200 cursor-pointer hover:scale-105 active:scale-95"
+                : "opacity-30 cursor-not-allowed text-stone-400 dark:text-neutral-600"
+            )}
+            title="Desfazer (Ctrl+Z)"
+          >
+            <Undo2 className="w-4 h-4" />
+          </button>
+        )}
+
+        {/* Refazer (Redo) */}
+        {onRedo && (
+          <button
+            type="button"
+            onClick={onRedo}
+            disabled={!canRedo}
+            className={clsx(
+              "p-2 rounded-xl transition-all",
+              canRedo
+                ? "hover:bg-stone-100 dark:hover:bg-white/10 text-stone-700 dark:text-neutral-200 cursor-pointer hover:scale-105 active:scale-95"
+                : "opacity-30 cursor-not-allowed text-stone-400 dark:text-neutral-600"
+            )}
+            title="Refazer (Ctrl+Y)"
+          >
+            <Redo2 className="w-4 h-4" />
+          </button>
+        )}
 
         {/* Dica de Conexão com Setas */}
         <button

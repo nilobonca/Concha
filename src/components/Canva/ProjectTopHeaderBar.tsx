@@ -14,6 +14,7 @@ import {
 import { WindowControls } from '@/components/common/WindowControls';
 import { isElectron } from '@/utils/electronHelper';
 import { SafeIcon } from '@/components/common/SafeIcon';
+import { navigateToVault } from '@/utils/navigationHelper';
 import { Layer } from '@/interfaces/utils/indexedDB';
 import clsx from 'clsx';
 
@@ -94,7 +95,7 @@ export const ProjectTopHeaderBar: React.FC<ProjectTopHeaderBarProps> = ({
       {/* Top Header Bar Container — Arrastável nativamente em todas as áreas livres */}
       <header
         className={clsx(
-          "fixed top-0 inset-x-0 h-11 z-50 flex items-center justify-between px-3 select-none transition-opacity duration-300 pointer-events-auto",
+          "fixed top-0 inset-x-0 h-[calc(2.75rem+env(safe-area-inset-top,0px))] pt-[env(safe-area-inset-top,0px)] z-50 flex items-center justify-between px-3 select-none transition-opacity duration-300 pointer-events-auto",
           "bg-white/80 dark:bg-[#0c0c12]/85 backdrop-blur-md border-b border-black/5 dark:border-white/10 text-stone-900 dark:text-neutral-100",
           "app-region-drag",
           isTheaterMode ? "opacity-0 pointer-events-none" : "opacity-100"
@@ -111,7 +112,7 @@ export const ProjectTopHeaderBar: React.FC<ProjectTopHeaderBarProps> = ({
           {/* Botão Voltar para o Vault */}
           <button
             type="button"
-            onClick={() => router.push('/vault')}
+            onClick={() => navigateToVault(router)}
             className="p-1.5 rounded-md text-stone-500 hover:text-stone-900 dark:text-neutral-400 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer"
             title="Voltar para o Vault"
           >
@@ -121,7 +122,7 @@ export const ProjectTopHeaderBar: React.FC<ProjectTopHeaderBarProps> = ({
           {/* Botão Vault */}
           <button
             type="button"
-            onClick={() => router.push('/vault')}
+            onClick={() => navigateToVault(router)}
             className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-[#1831D7]/10 hover:bg-[#1831D7]/20 text-[#1831D7] dark:text-[#7F95FF] border border-[#1831D7]/25 transition-all cursor-pointer"
             title="Abrir Vault de Notas"
           >

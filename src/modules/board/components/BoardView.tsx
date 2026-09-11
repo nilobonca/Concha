@@ -12,6 +12,8 @@ import { BoardToolbar } from './BoardToolbar';
 import { BoardCanvasContainer } from './BoardCanvasContainer';
 import { BoardArrowLayer } from './BoardArrowLayer';
 import { BoardDropContextMenu } from './BoardDropContextMenu';
+import { MarqueeBox } from './BoardSelectionMarquee';
+import { BoardMultiSelectBar } from './BoardMultiSelectBar';
 import { BoardNoteElement } from './elements/BoardNoteElement';
 import { BoardTextElement } from './elements/BoardTextElement';
 import { BoardAudioElement } from './elements/BoardAudioElement';
@@ -46,8 +48,11 @@ export const BoardView: React.FC<BoardViewProps> = ({
     selectedElementId,
     setSelectedElementId,
     selectedElementIds,
+    setSelectedElementIds,
     handleSelectElement,
+    selectElementsInArea,
     clearSelection,
+    deleteSelectedElements,
     viewport,
     setViewport,
     updateBoardName,
@@ -68,6 +73,11 @@ export const BoardView: React.FC<BoardViewProps> = ({
     setCanvasModalOpen,
     editingElementId,
     setEditingElementId,
+    addToHistory,
+    handleUndo,
+    handleRedo,
+    canUndo,
+    canRedo,
   } = useBoardCanvas(boardId, currentLayer?.name, folderPath);
 
   // Sincronizar nome caso a camada seja alterada externamente (apenas após carregamento concluído)
@@ -331,6 +341,31 @@ export const BoardView: React.FC<BoardViewProps> = ({
     }));
   };
 
+  const marqueeBaseSelectionRef = useRef<Set<string>>(new Set());
+
+  const handleSelectionBoxStart = useCallback((isShift: boolean) => {
+    marqueeBaseSelectionRef.current = isShift ? new Set(selectedElementIds) : new Set();
+  }, [selectedElementIds]);
+
+  const handleSelectionBox = useCallback((box: MarqueeBox | null, isShift: boolean) => {
+    if (!box) return;
+    const intersectingIds = boardData.elements
+      .filter(el => {
+        return (
+          el.x < box.maxX &&
+          el.x + el.width > box.minX &&
+          el.y < box.maxY &&
+          el.y + el.height > box.minY
+        );
+      })
+      .map(el => el.id);
+
+    const base = isShift ? marqueeBaseSelectionRef.current : new Set<string>();
+    const finalIds = new Set(base);
+    intersectingIds.forEach(id => finalIds.add(id));
+    setSelectedElementIds(finalIds);
+  }, [boardData.elements, setSelectedElementIds]);
+
   if (isLoading) {
     return (
       <div className={isEmbeddedInVault ? "w-full h-full bg-neutral-950 flex flex-col items-center justify-center gap-3 text-white" : "w-screen h-screen bg-neutral-950 flex flex-col items-center justify-center gap-3 text-white"}>
@@ -360,6 +395,13 @@ export const BoardView: React.FC<BoardViewProps> = ({
         onMoveToGeneral={() => handleUpdateFolder(null)}
       />
 
+      {/* Barra de Ações Flutuante para Seleção Múltipla */}
+      <BoardMultiSelectBar
+        selectedCount={selectedElementIds.size}
+        onClearSelection={clearSelection}
+        onDeleteSelected={deleteSelectedElements}
+      />
+
       {/* Viewport Interativo com Pan & Zoom */}
       <BoardCanvasContainer
         viewport={viewport}
@@ -368,6 +410,9 @@ export const BoardView: React.FC<BoardViewProps> = ({
         onToggleTheme={toggleCanvasTheme}
         onPointerMoveOnCanvas={connectionsHook.updateArrowDrag}
         onPointerUpOnCanvas={connectionsHook.finishArrowDrag}
+        onSelectionBoxStart={handleSelectionBoxStart}
+        onSelectionBoxChange={handleSelectionBox}
+        onSelectionBoxEnd={handleSelectionBox}
         onDropNote={handleDropNote}
         onDropVaultMedia={handleDropVaultMedia}
         onDropTool={handleDropTool}
@@ -415,6 +460,7 @@ export const BoardView: React.FC<BoardViewProps> = ({
             onStartArrow: (handle: HandlePosition, e: React.PointerEvent) =>
               connectionsHook.startArrowDrag(element.id, handle, e),
             onCenterElement: () => centerElement(element),
+            onDragStart: () => addToHistory({ elements: boardData.elements, connections: boardData.connections }),
           };
 
           switch (element.type) {
@@ -446,6 +492,10 @@ export const BoardView: React.FC<BoardViewProps> = ({
         onOpenVaultSearch={() => setVaultSearchModalOpen(true)}
         onToolDragStart={setDraggingTool}
         onToolDragEnd={() => setDraggingTool(null)}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        canUndo={canUndo}
+        canRedo={canRedo}
       />
 
       {/* Menu de Contexto ao Soltar Seta no Vazio */}

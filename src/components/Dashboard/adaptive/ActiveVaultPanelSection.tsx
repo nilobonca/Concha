@@ -8,6 +8,7 @@ import {
   ArrowRight 
 } from 'lucide-react';
 import { RegisteredVault } from '@/modules/vault/hooks/useVaultRegistry';
+import { useVaultStore } from '@/modules/vault/hooks/useVaultStore';
 import { isElectron, setWindowMode } from '@/utils/electronHelper';
 import { SafeIcon } from '@/components/common/SafeIcon';
 import { VaultListSection } from './VaultListSection';
@@ -204,17 +205,23 @@ export const ActiveVaultPanelSection: React.FC<ActiveVaultPanelSectionProps> = (
           ============================================================ */}
       <button
         onClick={async () => {
-          if (activeVault.storageType === 'fsa') {
-            try {
-              await onConnectFSA();
-            } catch (err) {
-              console.warn('[ActiveVaultPanelSection] Falha ao conectar antes de abrir:', err);
+          useVaultStore.getState().startEnteringVault(activeVault.name);
+          try {
+            if (activeVault.storageType === 'fsa') {
+              try {
+                await onConnectFSA();
+              } catch (err) {
+                console.warn('[ActiveVaultPanelSection] Falha ao conectar antes de abrir:', err);
+              }
             }
+            if (isElectron()) {
+              setWindowMode('workspace');
+            }
+            await router.push('/vault');
+          } catch (err) {
+            console.error('[ActiveVaultPanelSection] Erro ao navegar para vault:', err);
+            useVaultStore.getState().finishEnteringVault();
           }
-          if (isElectron()) {
-            setWindowMode('workspace');
-          }
-          router.push('/vault');
         }}
         className="shrink-0 w-full group relative overflow-hidden rounded-xl p-2.5 bg-[#1831D7] text-[#F4F0E6] hover:bg-[#1831D7]/90 font-bold text-xs flex items-center justify-between transition-all duration-200 active:scale-[0.98] shadow-md shadow-[#1831D7]/20 cursor-pointer"
       >

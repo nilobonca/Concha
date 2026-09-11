@@ -65,7 +65,7 @@ export const FORMATTING_COMMANDS: FormattingCommand[] = [
     category: 'lists',
     icon: CheckSquare,
     keywords: ['todo', 'tarefa', 'check', 'checklist', 'task'],
-    shortcut: '- [ ]',
+    shortcut: '[ ]',
     isActive: (editor) => editor.isActive('taskList'),
     execute: (editor) => editor.chain().focus().toggleTaskList().run(),
   },

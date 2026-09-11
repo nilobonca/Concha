@@ -44,4 +44,5 @@ next-env.d.ts
 /dist-electron/
 *.exe
 *.blockmap
+*.apk
 

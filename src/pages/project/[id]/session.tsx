@@ -224,3 +224,17 @@ export default function ListenerSession() {
         </div>
     );
 }
+
+export async function getStaticPaths() {
+    return {
+        paths: [],
+        fallback: false,
+    };
+}
+
+export async function getStaticProps() {
+    return {
+        props: {},
+    };
+}
+

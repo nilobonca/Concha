@@ -11,6 +11,7 @@ import {
   Layers
 } from 'lucide-react';
 import { RegisteredVault } from '@/modules/vault/hooks/useVaultRegistry';
+import { useVaultStore } from '@/modules/vault/hooks/useVaultStore';
 import { isElectron, setWindowMode } from '@/utils/electronHelper';
 import { FilingCabinetIcon } from '@/components/common/FilingCabinetIcon';
 import clsx from 'clsx';
@@ -68,6 +69,7 @@ export const VaultsLibraryPanelSection: React.FC<VaultsLibraryPanelSectionProps>
 
   // Clique duplo (2x): Entra diretamente no editor do Vault
   const handleDoubleClickVault = async (vault: RegisteredVault) => {
+    useVaultStore.getState().startEnteringVault(vault.name);
     try {
       if (vault.id !== activeVaultId || vault.storageType === 'fsa') {
         if (onSwitchVault) {
@@ -80,6 +82,7 @@ export const VaultsLibraryPanelSection: React.FC<VaultsLibraryPanelSectionProps>
       await router.push('/vault');
     } catch (err) {
       console.error('[RPGSA] Erro ao entrar no vault:', err);
+      useVaultStore.getState().finishEnteringVault();
     }
   };
 

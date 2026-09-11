@@ -467,6 +467,158 @@ const CanvasContainer = React.forwardRef<CanvasContainerHandle, CanvasContainerP
     };
   }, [isDraggingCanvas, isDraggingMinimap, minimapRatio, constrainBounds, selectionBox, onSelectionChange]);
 
+  // --- Mobile Touch Gestures: Pinch-to-Zoom, 1-Finger Pan & Double-Tap ---
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    let mode: 'none' | 'pan' | 'pinch' = 'none';
+    let lastDist = 0;
+    let lastCenter = { x: 0, y: 0 };
+    let lastSingleTouch = { x: 0, y: 0 };
+    let touchStartTime = 0;
+    let touchStartPos = { x: 0, y: 0 };
+    let lastTapTime = 0;
+    let lastTapPos = { x: 0, y: 0 };
+
+    const onTouchStart = (e: TouchEvent) => {
+      // 2 fingers: Pinch-to-Zoom + 2-Finger Pan
+      if (e.touches.length === 2) {
+        mode = 'pinch';
+        const t0 = e.touches[0];
+        const t1 = e.touches[1];
+        lastDist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
+        lastCenter = {
+          x: (t0.clientX + t1.clientX) / 2,
+          y: (t0.clientY + t1.clientY) / 2,
+        };
+        return;
+      }
+
+      // 1 finger: Canvas Pan & Double-Tap detector
+      if (e.touches.length === 1) {
+        const target = e.target as HTMLElement;
+        if (target.closest('.no-drag') || target.closest('.minimap-container')) {
+          mode = 'none';
+          return;
+        }
+
+        mode = 'pan';
+        const t = e.touches[0];
+        lastSingleTouch = { x: t.clientX, y: t.clientY };
+        touchStartPos = { x: t.clientX, y: t.clientY };
+        touchStartTime = Date.now();
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (mode === 'pinch' && e.touches.length === 2) {
+        e.preventDefault();
+        const t0 = e.touches[0];
+        const t1 = e.touches[1];
+        const dist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
+        const currentCenter = {
+          x: (t0.clientX + t1.clientX) / 2,
+          y: (t0.clientY + t1.clientY) / 2,
+        };
+
+        if (lastDist > 0) {
+          const zoomRatio = dist / lastDist;
+          const rect = container.getBoundingClientRect();
+          const focalX = currentCenter.x - rect.left;
+          const focalY = currentCenter.y - rect.top;
+
+          setTransform(prev => {
+            const nextK = Math.max(0.15, Math.min(prev.k * zoomRatio, MAX_SCALE));
+            const worldX = (focalX - prev.x) / prev.k;
+            const worldY = (focalY - prev.y) / prev.k;
+            const dx = currentCenter.x - lastCenter.x;
+            const dy = currentCenter.y - lastCenter.y;
+            const nextX = focalX - worldX * nextK + dx;
+            const nextY = focalY - worldY * nextK + dy;
+            return constrainBounds(nextX, nextY, nextK);
+          });
+        }
+
+        lastDist = dist;
+        lastCenter = currentCenter;
+      } else if (mode === 'pan' && e.touches.length === 1) {
+        e.preventDefault();
+        const t = e.touches[0];
+        const dx = t.clientX - lastSingleTouch.x;
+        const dy = t.clientY - lastSingleTouch.y;
+        lastSingleTouch = { x: t.clientX, y: t.clientY };
+
+        setTransform(prev => constrainBounds(prev.x + dx, prev.y + dy, prev.k));
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (mode === 'pinch' && e.touches.length === 1) {
+        mode = 'pan';
+        const t = e.touches[0];
+        lastSingleTouch = { x: t.clientX, y: t.clientY };
+        return;
+      }
+
+      if (e.touches.length === 0) {
+        if (mode === 'pan') {
+          const duration = Date.now() - touchStartTime;
+          const distMoved = Math.hypot(
+            lastSingleTouch.x - touchStartPos.x,
+            lastSingleTouch.y - touchStartPos.y
+          );
+
+          // Tap gesture
+          if (duration < 320 && distMoved < 15) {
+            const now = Date.now();
+            const timeSinceLastTap = now - lastTapTime;
+            const distFromLastTap = Math.hypot(
+              lastSingleTouch.x - lastTapPos.x,
+              lastSingleTouch.y - lastTapPos.y
+            );
+
+            if (timeSinceLastTap > 50 && timeSinceLastTap < 380 && distFromLastTap < 40) {
+              // --- Double Tap Action: Zoom In 2x / Reset ---
+              e.preventDefault();
+              const rect = container.getBoundingClientRect();
+              const tapX = lastSingleTouch.x - rect.left;
+              const tapY = lastSingleTouch.y - rect.top;
+
+              setTransform(prev => {
+                const targetK = prev.k > 1.25 ? 1 : Math.min(prev.k * 2, MAX_SCALE);
+                const worldX = (tapX - prev.x) / prev.k;
+                const worldY = (tapY - prev.y) / prev.k;
+                const nextX = tapX - worldX * targetK;
+                const nextY = tapY - worldY * targetK;
+                return constrainBounds(nextX, nextY, targetK);
+              });
+
+              lastTapTime = 0;
+            } else {
+              lastTapTime = now;
+              lastTapPos = { ...lastSingleTouch };
+            }
+          }
+        }
+        mode = 'none';
+        lastDist = 0;
+      }
+    };
+
+    container.addEventListener('touchstart', onTouchStart, { passive: false });
+    container.addEventListener('touchmove', onTouchMove, { passive: false });
+    container.addEventListener('touchend', onTouchEnd, { passive: false });
+    container.addEventListener('touchcancel', onTouchEnd, { passive: false });
+
+    return () => {
+      container.removeEventListener('touchstart', onTouchStart);
+      container.removeEventListener('touchmove', onTouchMove);
+      container.removeEventListener('touchend', onTouchEnd);
+      container.removeEventListener('touchcancel', onTouchEnd);
+    };
+  }, [constrainBounds]);
+
   // Space Key Handling
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -537,7 +689,7 @@ const CanvasContainer = React.forwardRef<CanvasContainerHandle, CanvasContainerP
         {/* Área Principal */}
         <div
           ref={containerRef}
-          className={clsx("relative flex-1 overflow-hidden transition-colors duration-500", isEthereal ? "bg-transparent" : (canvasTheme === 'light' ? "bg-[#F3F4F6]" : "bg-neutral-900"))}
+          className={clsx("relative flex-1 overflow-hidden transition-colors duration-500 touch-none", isEthereal ? "bg-transparent" : (canvasTheme === 'light' ? "bg-[#F3F4F6]" : "bg-neutral-900"))}
           onMouseDown={handleMouseDown}
           onMouseUp={handleContainerMouseUp}
           onContextMenu={handleContextMenu}
@@ -554,7 +706,7 @@ const CanvasContainer = React.forwardRef<CanvasContainerHandle, CanvasContainerP
           }}
           onDrop={handleDrop}
           onDragOver={handleDragOver}
-          style={{ cursor: isSpacePressed ? (isDraggingCanvas ? 'grabbing' : 'grab') : 'default' }}
+          style={{ touchAction: 'none', cursor: isSpacePressed ? (isDraggingCanvas ? 'grabbing' : 'grab') : 'default' }}
         >
 
           {/* --- MUNDO (Conteúdo com Transform) --- */}

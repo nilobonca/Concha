@@ -124,8 +124,21 @@ turndown.addRule('taskItem', {
     return node.nodeName === 'LI' && (node.getAttribute('data-type') === 'taskItem' || node.classList.contains('task-list-item'));
   },
   replacement: (content, node) => {
-    const isChecked = (node as HTMLElement).getAttribute('data-checked') === 'true' ||
-      Boolean((node as HTMLElement).querySelector('input[type="checkbox"]:checked'));
+    const el = node as HTMLElement;
+    // 1. TipTap sets data-checked="true" | "false" directly on the taskItem <li>
+    let isChecked = el.getAttribute('data-checked') === 'true';
+
+    // 2. If data-checked is not explicitly set, find the direct checkbox belonging to this <li>
+    if (!el.hasAttribute('data-checked')) {
+      const allInputs = el.querySelectorAll('input[type="checkbox"]');
+      for (const inp of Array.from(allInputs)) {
+        if (inp.closest('li') === el) {
+          isChecked = inp.hasAttribute('checked') || (inp as HTMLInputElement).checked === true || /\bchecked\b/i.test(inp.outerHTML);
+          break;
+        }
+      }
+    }
+
     // Clean out any checkbox characters or whitespace already added by inner tags
     const cleanContent = content.trim().replace(/^\[[ xX]\]\s*/, '');
     return `${isChecked ? '- [x] ' : '- [ ] '}${cleanContent}\n`;
@@ -236,12 +249,96 @@ export function markdownToHtml(raw: string): string {
 
     // Transform marked checkboxes into TipTap taskList/taskItem structure
     if (parsed.includes('type="checkbox"')) {
-      parsed = parsed.replace(/<li[^>]*>\s*<input[^>]*type="checkbox"[^>]*checked[^>]*>([\s\S]*?)<\/li>/gi, 
-        '<li data-type="taskItem" data-checked="true"><label><input type="checkbox" checked="checked"><span></span></label><div><p>$1</p></div></li>');
-      parsed = parsed.replace(/<li[^>]*>\s*<input[^>]*type="checkbox"[^>]*>([\s\S]*?)<\/li>/gi, 
-        '<li data-type="taskItem" data-checked="false"><label><input type="checkbox"><span></span></label><div><p>$1</p></div></li>');
-      parsed = parsed.replace(/<ul>([\s\S]*?<li data-type="taskItem"[\s\S]*?)<\/ul>/gi, 
-        '<ul data-type="taskList">$1</ul>');
+      if (typeof window !== 'undefined' && typeof DOMParser !== 'undefined') {
+        const doc = new DOMParser().parseFromString(`<body>${parsed}</body>`, 'text/html');
+        const listItems = Array.from(doc.querySelectorAll('li'));
+        let hasTaskItem = false;
+
+        for (const li of listItems) {
+          const checkbox = li.querySelector('input[type="checkbox"]');
+          if (!checkbox) continue;
+
+          // Ensure this checkbox belongs to this li directly, not a descendant li
+          const closestLi = checkbox.closest('li');
+          if (closestLi !== li) continue;
+
+          hasTaskItem = true;
+          const isChecked = checkbox.hasAttribute('checked') || 
+            (checkbox as HTMLInputElement).checked === true || 
+            /\bchecked\b/i.test(checkbox.outerHTML);
+
+          li.setAttribute('data-type', 'taskItem');
+          li.setAttribute('data-checked', isChecked ? 'true' : 'false');
+
+          // Remove the checkbox element from its current position
+          checkbox.remove();
+
+          // Create the standard TipTap TaskItem DOM structure:
+          // <label><input type="checkbox" ...><span></span></label>
+          // <div><p>Content</p> [nested ul]</div>
+          const label = doc.createElement('label');
+          const input = doc.createElement('input');
+          input.setAttribute('type', 'checkbox');
+          if (isChecked) {
+            input.setAttribute('checked', 'checked');
+          }
+          const span = doc.createElement('span');
+          label.appendChild(input);
+          label.appendChild(span);
+
+          // Collect existing children of li (which may include text, <p>, <ul>, etc.)
+          const existingNodes = Array.from(li.childNodes);
+          const contentDiv = doc.createElement('div');
+          const paragraph = doc.createElement('p');
+
+          for (const node of existingNodes) {
+            if (node.nodeName === 'UL' || node.nodeName === 'OL') {
+              contentDiv.appendChild(node);
+            } else if (node.nodeName === 'P') {
+              while (node.firstChild) {
+                paragraph.appendChild(node.firstChild);
+              }
+            } else {
+              paragraph.appendChild(node);
+            }
+          }
+
+          if (paragraph.childNodes.length > 0 || contentDiv.childNodes.length === 0) {
+            contentDiv.insertBefore(paragraph, contentDiv.firstChild);
+          }
+
+          li.innerHTML = '';
+          li.appendChild(label);
+          li.appendChild(contentDiv);
+        }
+
+        if (hasTaskItem) {
+          const uls = doc.querySelectorAll('ul');
+          for (const ul of Array.from(uls)) {
+            if (ul.querySelector('li[data-type="taskItem"]')) {
+              ul.setAttribute('data-type', 'taskList');
+            }
+          }
+          parsed = doc.body.innerHTML;
+        }
+      } else {
+        // Fallback for non-DOM environments
+        parsed = parsed.replace(/<li\b([^>]*)>([\s\S]*?)<\/li>/gi, (match, liAttrs, liInner) => {
+          const inputMatch = liInner.match(/<input\b[^>]*type=["']?checkbox["']?[^>]*>/i);
+          if (!inputMatch) return match;
+          const inputTag = inputMatch[0];
+          const isChecked = /\bchecked\b/i.test(inputTag);
+          let cleanContent = liInner.replace(inputTag, '').trim();
+          cleanContent = cleanContent.replace(/^<p\b[^>]*>([\s\S]*?)<\/p>$/i, '$1').trim();
+          return `<li data-type="taskItem" data-checked="${isChecked ? 'true' : 'false'}"${liAttrs}><label><input type="checkbox"${isChecked ? ' checked="checked"' : ''}><span></span></label><div><p>${cleanContent}</p></div></li>`;
+        });
+        parsed = parsed.replace(/<ul\b([^>]*)>([\s\S]*?)<\/ul>/gi, (match, attrs, inner) => {
+          if (inner.includes('data-type="taskItem"')) {
+            return `<ul data-type="taskList"${attrs}>${inner}</ul>`;
+          }
+          return match;
+        });
+      }
     }
 
     // Transform marked callouts into TipTap callout node structure

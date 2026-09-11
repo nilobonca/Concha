@@ -200,15 +200,15 @@ export const VaultPaneView: React.FC<VaultPaneViewProps> = ({
       )}
 
       {/* Content Area */}
-      <div className={`flex-1 overflow-hidden relative min-h-0 ${draggedTab ? 'pointer-events-none' : ''}`}>
-        {!activeTab || activeTab.type === 'empty' || activeTab.path.startsWith('new-tab:') ? (
-          /* Empty pane or new tab placeholder */
+      <div className={`flex-1 overflow-hidden relative min-h-0 flex flex-col ${draggedTab ? 'pointer-events-none' : ''}`}>
+        {pane.tabs.length === 0 || !activeTab ? (
+          /* Painel vazio sem abas */
           <div className="flex-1 flex flex-col items-center justify-center text-stone-500 dark:text-neutral-400 p-8 select-none bg-[#FAF9F6]/80 dark:bg-black/20 h-full">
             <div className="w-14 h-14 rounded-2xl bg-white dark:bg-white/5 border border-stone-200/90 dark:border-white/10 flex items-center justify-center mb-3 text-stone-400 dark:text-neutral-400 shadow-xs">
               <FileText className="w-7 h-7" />
             </div>
             <h3 className="text-sm font-semibold text-stone-700 dark:text-neutral-300 mb-1">
-              {activeTab ? 'Nova Aba' : 'Nenhum documento'}
+              Nenhum documento
             </h3>
             <p className="text-xs text-stone-500 dark:text-neutral-400 max-w-xs text-center mb-4">
               Selecione uma nota no menu lateral ou crie uma nova nota.
@@ -234,21 +234,75 @@ export const VaultPaneView: React.FC<VaultPaneViewProps> = ({
               </button>
             </div>
           </div>
-        ) : isCanvas && currentCanvasId ? (
-          <div className="flex-1 w-full h-full relative overflow-hidden">
-            <BoardView
-              boardId={currentCanvasId}
-              isEmbeddedInVault={true}
-              onCloseEmbedded={() => closeTabInPane(pane.id, activeTab.path)}
-            />
-          </div>
-        ) : (activeTab.type === 'audio' || activeTab.type === 'image') ? (
-          <VaultMediaPreview
-            path={activeTab.path}
-            type={activeTab.type}
-          />
         ) : (
-          <VaultEditor paneId={pane.id} documentPath={activeTab.path} />
+          pane.tabs.map(tab => {
+            const isActive = tab.path === pane.activePath;
+            const isTabCanvas = tab.type === 'canvas' || tab.path.startsWith('canvas:');
+            const canvasId = tab.canvasId || (tab.path.startsWith('canvas:') ? tab.path.replace('canvas:', '') : null);
+
+            if (tab.type === 'empty' || tab.path.startsWith('new-tab:')) {
+              if (!isActive) return null;
+              return (
+                <div key={`${pane.id}:${tab.path}`} className="flex-1 flex flex-col items-center justify-center text-stone-500 dark:text-neutral-400 p-8 select-none bg-[#FAF9F6]/80 dark:bg-black/20 h-full">
+                  <div className="w-14 h-14 rounded-2xl bg-white dark:bg-white/5 border border-stone-200/90 dark:border-white/10 flex items-center justify-center mb-3 text-stone-400 dark:text-neutral-400 shadow-xs">
+                    <FileText className="w-7 h-7" />
+                  </div>
+                  <h3 className="text-sm font-semibold text-stone-700 dark:text-neutral-300 mb-1">
+                    Nova Aba
+                  </h3>
+                  <p className="text-xs text-stone-500 dark:text-neutral-400 max-w-xs text-center mb-4">
+                    Selecione uma nota no menu lateral ou crie uma nova nota.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await createFile('', '');
+                      }}
+                      className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-[#1831D7] hover:bg-[#1831D7]/90 text-xs font-medium text-white shadow-xs transition-colors cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Nova Nota</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCommandPaletteOpen(true)}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white hover:bg-stone-100 dark:bg-white/5 dark:hover:bg-white/10 text-xs font-medium text-stone-700 dark:text-neutral-200 border border-stone-200/90 dark:border-white/10 shadow-xs transition-colors cursor-pointer"
+                    >
+                      <Search className="w-3.5 h-3.5 text-[#1831D7] dark:text-[#7F95FF]" />
+                      <span>Buscar (Ctrl+P)</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <div
+                key={`${pane.id}:${tab.path}`}
+                className={`w-full h-full relative overflow-hidden ${isActive ? 'flex flex-col flex-1' : 'hidden'}`}
+              >
+                {isTabCanvas && canvasId ? (
+                  <BoardView
+                    boardId={canvasId}
+                    isEmbeddedInVault={true}
+                    onCloseEmbedded={() => closeTabInPane(pane.id, tab.path)}
+                  />
+                ) : (tab.type === 'audio' || tab.type === 'image') ? (
+                  <VaultMediaPreview
+                    path={tab.path}
+                    type={tab.type}
+                  />
+                ) : (
+                  <VaultEditor
+                    paneId={pane.id}
+                    documentPath={tab.path}
+                    isActive={isActive}
+                  />
+                )}
+              </div>
+            );
+          })
         )}
       </div>
 

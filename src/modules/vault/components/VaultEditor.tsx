@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import type { EditorView } from '@tiptap/pm/view';
+import { EditorState } from '@tiptap/pm/state';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Link from '@tiptap/extension-link';
@@ -30,7 +31,7 @@ import {
   Code, FileText, Search, 
   Sparkles, ChevronUp, 
   ChevronDown, Replace, X, Eye,
-  FolderKanban, Music, AlertCircle
+  FolderKanban, Music, AlertCircle, Loader2
 } from 'lucide-react';
 import { useRouter } from 'next/router';
 import { useIDB } from '@/utils/indexedDB';
@@ -55,9 +56,10 @@ export interface VaultLinkSuggestion {
 interface VaultEditorProps {
   paneId?: string;
   documentPath?: string;
+  isActive?: boolean;
 }
 
-export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath }) => {
+export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath, isActive = true }) => {
   const { 
     activePath: globalActivePath, 
     activeContent: globalActiveContent, 
@@ -89,7 +91,7 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath }
   // Use documentPath prop if provided (multi-pane mode), otherwise fall back to global
   const activePath = documentPath || globalActivePath;
   const cachedDoc = activePath ? documentCache[activePath] : undefined;
-  const activeContent = cachedDoc?.content ?? globalActiveContent;
+  const activeContent = cachedDoc?.content ?? '';
 
   const [title, setTitle] = useState('');
   const [titleWarning, setTitleWarning] = useState<string | null>(null);
@@ -143,7 +145,7 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath }
       const fullMd = stringifyFrontmatter(cachedDoc?.frontmatter || {}, bodyMd);
       setSourceValue(fullMd);
     }
-  }, [viewMode, activePath, cachedDoc?.frontmatter]);
+  }, [viewMode, activePath, cachedDoc?.frontmatter, activeContent]);
 
   const handleSourceChange = (newFullMd: string) => {
     setSourceValue(newFullMd);
@@ -192,8 +194,48 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath }
   const [suggestionQuery, setSuggestionQuery] = useState('');
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
   const [suggestionPosition, setSuggestionPosition] = useState<{ top: number; left: number } | null>(null);
+  const suggestionRef = useRef<HTMLDivElement>(null);
 
   const isDefaultVault = vaultId === 'default-vault' || !vaultId;
+
+  // Fechar o popup de sugestões [[ em interações externas (clique fora, scroll fora, perda de foco ou Escape)
+  useEffect(() => {
+    if (!suggestionOpen) return;
+
+    const handlePointerDown = (e: PointerEvent) => {
+      if (suggestionRef.current && !suggestionRef.current.contains(e.target as Node)) {
+        setSuggestionOpen(false);
+      }
+    };
+
+    const handleScroll = (e: Event) => {
+      if (suggestionRef.current && !suggestionRef.current.contains(e.target as Node)) {
+        setSuggestionOpen(false);
+      }
+    };
+
+    const handleWindowBlur = () => {
+      setSuggestionOpen(false);
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSuggestionOpen(false);
+      }
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown, true);
+    window.addEventListener('scroll', handleScroll, true);
+    window.addEventListener('blur', handleWindowBlur);
+    window.addEventListener('keydown', handleKeyDown, true);
+
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown, true);
+      window.removeEventListener('scroll', handleScroll, true);
+      window.removeEventListener('blur', handleWindowBlur);
+      window.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [suggestionOpen]);
 
   // Available canvases in the Vault/database
   const allCanvases = useMemo(() => {
@@ -593,17 +635,40 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath }
         }
       }
     },
+    onSelectionUpdate: ({ editor }) => {
+      if (!slashOpenRef.current && !suggestionOpenRef.current) return;
+
+      const { selection } = editor.state;
+      const { $from } = selection;
+      const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, ' ');
+
+      if (slashOpenRef.current) {
+        const slashMatch = textBefore.match(/(?:^|\s)\/([a-zA-Z0-9_\u00C0-\u00FF-]*)$/);
+        if (!slashMatch) {
+          setSlashOpen(false);
+        }
+      }
+
+      if (suggestionOpenRef.current) {
+        const match = textBefore.match(/\[\[([^\]]*)$/);
+        if (!match) {
+          setSuggestionOpen(false);
+        }
+      }
+    },
   });
 
   // Keep active editor reference synced with store
   useEffect(() => {
-    if (editor) {
+    if (editor && isActive) {
       setActiveEditorRef(editor);
     }
     return () => {
-      setActiveEditorRef(null);
+      if (useVaultStore.getState().activeEditorRef === editor) {
+        setActiveEditorRef(null);
+      }
     };
-  }, [editor, setActiveEditorRef]);
+  }, [editor, isActive, setActiveEditorRef]);
 
   const handleExecuteSlashCommand = (cmd: FormattingCommand) => {
     if (!editor) return;
@@ -630,6 +695,20 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath }
     executeSlashRef.current = handleExecuteSlashCommand;
   });
 
+  // Fechar menus de comando slash (/) e autocomplete ([[]) ao trocar de documento ou alternar visualização
+  useEffect(() => {
+    setSlashOpen(false);
+    setSuggestionOpen(false);
+  }, [activePath, viewMode]);
+
+  // Fechar menus de comando slash (/) e autocomplete ([[]) se a busca interna na nota for aberta
+  useEffect(() => {
+    if (searchOpen) {
+      setSlashOpen(false);
+      setSuggestionOpen(false);
+    }
+  }, [searchOpen]);
+
   // Sync title from activePath
   useEffect(() => {
     if (activePath) {
@@ -638,12 +717,24 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath }
     }
   }, [activePath]);
 
+  // Flush qualquer salvamento pendente ao fechar a janela/aba ou desmontar o editor
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      useVaultStore.getState().flushPendingSaves();
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      useVaultStore.getState().flushPendingSaves();
+    };
+  }, []);
+
   // Load document content if not yet loaded in cache
   useEffect(() => {
-    if (documentPath && !documentPath.startsWith('canvas:') && !documentCache[documentPath]) {
-      loadDocumentContent(documentPath);
+    if (activePath && !activePath.startsWith('canvas:') && !activePath.startsWith('new-tab:') && !documentCache[activePath]) {
+      loadDocumentContent(activePath);
     }
-  }, [documentPath, documentCache, loadDocumentContent]);
+  }, [activePath, documentCache, loadDocumentContent]);
 
   // Sincroniza o conteúdo quando o documento ativo muda ou ao alternar modos de visualização
   useEffect(() => {
@@ -656,9 +747,29 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath }
     // 1. Mudança de arquivo (trocou de aba ou selecionou outra nota na barra lateral)
     // ou retorno do modo código/fonte para live
     if (hasPathChanged || switchedFromSource) {
+      // Se a nota ainda está sendo carregada do disco/IndexedDB pela primeira vez:
+      if (!cachedDoc) {
+        // Limpa o conteúdo no editor para garantir que resquícios da nota anterior não persistam,
+        // mas NÃO marca o path como carregado para aguardar a chegada dos dados do cache.
+        isUpdatingFromStoreRef.current = true;
+        editor.commands.setContent('');
+        isUpdatingFromStoreRef.current = false;
+        return;
+      }
+
       currentLoadedPathRef.current = activePath;
       isUpdatingFromStoreRef.current = true;
-      editor.commands.setContent(activeContent || '');
+      editor.commands.setContent(cachedDoc.content || '');
+      try {
+        const freshState = EditorState.create({
+          schema: editor.state.schema,
+          doc: editor.state.doc,
+          plugins: editor.state.plugins,
+        });
+        editor.view.updateState(freshState);
+      } catch (err) {
+        console.warn('Erro ao resetar histórico do ProseMirror no editor:', err);
+      }
       isUpdatingFromStoreRef.current = false;
       return;
     }
@@ -669,13 +780,16 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath }
       return;
     }
 
-    // 3. Caso o editor esteja vazio e o conteúdo assíncrono acabou de carregar do disco pela primeira vez
-    if (editor.isEmpty && activeContent && activeContent !== '<p></p>') {
-      isUpdatingFromStoreRef.current = true;
-      editor.commands.setContent(activeContent);
-      isUpdatingFromStoreRef.current = false;
+    // 3. Caso o documento ativo tenha acabado de carregar do disco ou chegado de sincronização externa
+    if (cachedDoc && currentLoadedPathRef.current === activePath) {
+      const currentHtml = editor.getHTML();
+      if (currentHtml !== cachedDoc.content && !cachedDoc.isDirty) {
+        isUpdatingFromStoreRef.current = true;
+        editor.commands.setContent(cachedDoc.content || '');
+        isUpdatingFromStoreRef.current = false;
+      }
     }
-  }, [activePath, activeContent, editor, viewMode]);
+  }, [activePath, cachedDoc, editor, viewMode]);
 
   // Compute search matches whenever doc or searchTerm or caseSensitive changes
   useEffect(() => {
@@ -1074,25 +1188,35 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath }
             )}
           </div>
 
-          {viewMode === 'live' && (
-            <>
-              <VaultBubbleMenu editor={editor} />
-              <EditorContent editor={editor} />
-            </>
+          {/* Indicador de carregamento enquanto a nota é lida do disco pela primeira vez */}
+          {!cachedDoc && activePath && (
+            <div className="py-20 flex flex-col items-center justify-center text-stone-400 dark:text-neutral-500 animate-pulse select-none">
+              <Loader2 className="w-5 h-5 animate-spin text-stone-400 dark:text-neutral-500 mb-2" />
+              <span className="text-xs font-medium">Carregando nota...</span>
+            </div>
           )}
 
-          {viewMode === 'source' && (
-            <VaultSourceEditor
-              value={sourceValue}
-              onChange={handleSourceChange}
-            />
-          )}
+          <div className={!cachedDoc && activePath ? 'hidden' : 'contents'}>
+            {viewMode === 'live' && (
+              <>
+                <VaultBubbleMenu editor={editor} />
+                <EditorContent editor={editor} />
+              </>
+            )}
 
-          {viewMode === 'reading' && (
-            <VaultReadingView
-              content={htmlToMarkdown(activeContent || '')}
-            />
-          )}
+            {viewMode === 'source' && (
+              <VaultSourceEditor
+                value={sourceValue}
+                onChange={handleSourceChange}
+              />
+            )}
+
+            {viewMode === 'reading' && (
+              <VaultReadingView
+                content={htmlToMarkdown(activeContent || '')}
+              />
+            )}
+          </div>
 
           {/* Slash Command Popup when user types / */}
           {slashOpen && (
@@ -1108,6 +1232,7 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath }
           {/* Autocomplete Popup when user types [[ */}
           {suggestionOpen && (
             <div 
+              ref={suggestionRef}
               style={suggestionPosition ? { top: `${suggestionPosition.top}px`, left: `${suggestionPosition.left}px` } : undefined}
               className={`absolute z-30 w-84 bg-white dark:bg-[#16161D] border border-stone-200 dark:border-white/10 rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-100 ${!suggestionPosition ? 'left-0 top-12' : ''}`}
             >
@@ -1128,6 +1253,9 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath }
                         if (isSelected) {
                           el?.scrollIntoView({ block: 'nearest' });
                         }
+                      }}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
                       }}
                       onClick={() => insertWikilink(item.name)}
                       onMouseEnter={() => setSelectedSuggestionIndex(idx)}
@@ -1180,6 +1308,9 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath }
                       if (selectedSuggestionIndex === suggestions.length) {
                         el?.scrollIntoView({ block: 'nearest' });
                       }
+                    }}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
                     }}
                     onClick={() => insertWikilink(suggestionQuery.trim())}
                     onMouseEnter={() => setSelectedSuggestionIndex(suggestions.length)}

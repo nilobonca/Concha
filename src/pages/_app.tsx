@@ -10,6 +10,7 @@ import Head from "next/head";
 import { useEffect, useState } from "react";
 import { FeedbackWidget } from "@/components/Feedback/FeedbackWidget";
 import { AppUpdateToast } from "@/components/common/AppUpdateToast";
+import { VaultLoadingModal } from "@/modules/vault/components/VaultLoadingModal";
 import { PollsProvider } from "@/contexts/PollsContext";
 import { useThemeStore } from "@/store/themeStore";
 import { useAppUpdateStore } from "@/store/useAppUpdateStore";
@@ -55,6 +56,15 @@ export default function App({ Component, pageProps }: AppProps) {
     // Initialize auto-updater store and auto-check on startup
     const unsubUpdate = initAppUpdate();
 
+    // In mobile / Capacitor environment, automatically hide status bar for immersive full-screen
+    if (typeof window !== 'undefined') {
+      import('@capacitor/status-bar')
+        .then(({ StatusBar }) => {
+          StatusBar.hide().catch(() => {});
+        })
+        .catch(() => {});
+    }
+
     return () => {
       document.removeEventListener('contextmenu', handleContextMenu);
       unsubMute?.();
@@ -76,6 +86,7 @@ export default function App({ Component, pageProps }: AppProps) {
     <>
       <Head>
         <title>Concha</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
         <meta name="application-name" content="Concha" />
         <meta name="apple-mobile-web-app-title" content="Concha" />
       </Head>
@@ -95,6 +106,7 @@ export default function App({ Component, pageProps }: AppProps) {
                 </div>
                 <FeedbackWidget />
                 <AppUpdateToast />
+                <VaultLoadingModal />
                 
                 {mounted && (
                   <>

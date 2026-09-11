@@ -25,30 +25,91 @@ interface BoardNoteElementProps {
   onStartArrow: (handle: HandlePosition, e: React.PointerEvent) => void;
   onCenterElement?: () => void;
   onSetEditing?: (isEditing: boolean) => void;
+  onDragStart?: () => void;
+}
+
+/**
+ * Converte uma cor hex para HSL e retorna uma versão pastel
+ * (alta luminosidade ~92%, saturação moderada ~55%).
+ */
+function hexToPastelBg(hex: string): string {
+  const clean = hex.replace('#', '');
+  if (clean.length !== 6) return '#F4F0E6';
+  const r = parseInt(clean.substring(0, 2), 16) / 255;
+  const g = parseInt(clean.substring(2, 4), 16) / 255;
+  const b = parseInt(clean.substring(4, 6), 16) / 255;
+
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+
+  let h = 0;
+  if (delta !== 0) {
+    if (max === r) h = ((g - b) / delta) % 6;
+    else if (max === g) h = (b - r) / delta + 2;
+    else h = (r - g) / delta + 4;
+    h = Math.round(h * 60);
+    if (h < 0) h += 360;
+  }
+
+  const pastelS = 55;
+  const pastelL = 92;
+
+  return `hsl(${h}, ${pastelS}%, ${pastelL}%)`;
 }
 
 export const NOTE_THEMES: Record<string, { border: string; bg: string; name: string }> = {
-  cobalt: { border: '#1831D7', bg: '#F4F0E6', name: 'Cobalto' },
-  periwinkle: { border: '#7F95FF', bg: '#F4F0E6', name: 'Periwinkle' },
-  cyan: { border: '#52B1FF', bg: '#F4F0E6', name: 'Celeste' },
-  ice: { border: '#B4D3F1', bg: '#F4F0E6', name: 'Gelo' },
-  midnight: { border: '#17192A', bg: '#F4F0E6', name: 'Meia-Noite' },
+  // Vermelhos
+  vermelho: { border: '#E53935', bg: hexToPastelBg('#E53935'), name: 'Vermelho' },
+  coral: { border: '#FF6B6B', bg: hexToPastelBg('#FF6B6B'), name: 'Coral' },
+  // Laranjas
+  laranja: { border: '#FB8C00', bg: hexToPastelBg('#FB8C00'), name: 'Laranja' },
+  tangerina: { border: '#FF9F43', bg: hexToPastelBg('#FF9F43'), name: 'Tangerina' },
+  // Amarelos
+  amarelo: { border: '#FDD835', bg: hexToPastelBg('#FDD835'), name: 'Amarelo' },
+  ambar: { border: '#FFCA28', bg: hexToPastelBg('#FFCA28'), name: 'Âmbar' },
+  // Verdes
+  verde: { border: '#43A047', bg: hexToPastelBg('#43A047'), name: 'Verde' },
+  esmeralda: { border: '#2ECC71', bg: hexToPastelBg('#2ECC71'), name: 'Esmeralda' },
+  menta: { border: '#26DE81', bg: hexToPastelBg('#26DE81'), name: 'Menta' },
+  // Cianos
+  ciano: { border: '#00BCD4', bg: hexToPastelBg('#00BCD4'), name: 'Ciano' },
+  turquesa: { border: '#00ACC1', bg: hexToPastelBg('#00ACC1'), name: 'Turquesa' },
+  // Azuis
+  cobalt: { border: '#1831D7', bg: hexToPastelBg('#1831D7'), name: 'Cobalto' },
+  periwinkle: { border: '#7F95FF', bg: hexToPastelBg('#7F95FF'), name: 'Periwinkle' },
+  cyan: { border: '#52B1FF', bg: hexToPastelBg('#52B1FF'), name: 'Celeste' },
+  royal: { border: '#1E88E5', bg: hexToPastelBg('#1E88E5'), name: 'Azul Royal' },
+  // Roxos
+  roxo: { border: '#8E24AA', bg: hexToPastelBg('#8E24AA'), name: 'Roxo' },
+  lavanda: { border: '#AB47BC', bg: hexToPastelBg('#AB47BC'), name: 'Lavanda' },
+  violeta: { border: '#7C4DFF', bg: hexToPastelBg('#7C4DFF'), name: 'Violeta' },
+  // Rosas
+  rosa: { border: '#EC407A', bg: hexToPastelBg('#EC407A'), name: 'Rosa' },
+  fucsia: { border: '#E040FB', bg: hexToPastelBg('#E040FB'), name: 'Fúcsia' },
+  rosegold: { border: '#F48FB1', bg: hexToPastelBg('#F48FB1'), name: 'Rose Gold' },
+  // Neutros e Especiais
+  grafite: { border: '#455A64', bg: hexToPastelBg('#455A64'), name: 'Grafite' },
+  marfim: { border: '#F4F0E6', bg: '#FDFCF8', name: 'Marfim' },
+  midnight: { border: '#17192A', bg: hexToPastelBg('#17192A'), name: 'Midnight' },
 };
 
 function getNoteTheme(color?: string) {
   if (!color) return NOTE_THEMES.cobalt;
   const lower = color.toLowerCase();
+
+  // Procura correspondência direta por border color
   for (const key of Object.keys(NOTE_THEMES)) {
     const t = NOTE_THEMES[key];
     if (t.border.toLowerCase() === lower || key === lower) {
       return t;
     }
   }
-  if (lower.includes('cobalt') || lower.includes('1831d7')) return NOTE_THEMES.cobalt;
-  if (lower.includes('periwinkle') || lower.includes('7f95ff')) return NOTE_THEMES.periwinkle;
-  if (lower.includes('cyan') || lower.includes('52b1ff')) return NOTE_THEMES.cyan;
-  if (lower.includes('ice') || lower.includes('b4d3f1')) return NOTE_THEMES.ice;
-  if (lower.includes('midnight') || lower.includes('17192a')) return NOTE_THEMES.midnight;
+
+  // Para qualquer cor hex arbitrária, gera tema com fundo pastel
+  if (lower.startsWith('#') && (lower.length === 7 || lower.length === 4)) {
+    return { border: color, bg: hexToPastelBg(color), name: 'Personalizada' };
+  }
 
   return NOTE_THEMES.cobalt;
 }
@@ -69,7 +130,25 @@ function processMarkdownForPreview(markdown: string, title?: string): string {
   });
 
   try {
-    return marked.parse(processed, { async: false, breaks: true }) as string;
+    let parsed = marked.parse(processed, { async: false, breaks: true }) as string;
+    if (parsed.includes('type="checkbox"')) {
+      parsed = parsed.replace(/<li\b([^>]*)>([\s\S]*?)<\/li>/gi, (match, liAttrs, liInner) => {
+        const inputMatch = liInner.match(/<input\b[^>]*type=["']?checkbox["']?[^>]*>/i);
+        if (!inputMatch) return match;
+        const inputTag = inputMatch[0];
+        const isChecked = /\bchecked\b/i.test(inputTag);
+        let cleanContent = liInner.replace(inputTag, '').trim();
+        cleanContent = cleanContent.replace(/^<p\b[^>]*>([\s\S]*?)<\/p>$/i, '$1').trim();
+        return `<li data-type="taskItem" data-checked="${isChecked ? 'true' : 'false'}"${liAttrs}><label><input type="checkbox"${isChecked ? ' checked="checked"' : ''} disabled><span></span></label><div><p>${cleanContent}</p></div></li>`;
+      });
+      parsed = parsed.replace(/<ul\b([^>]*)>([\s\S]*?)<\/ul>/gi, (match, attrs, inner) => {
+        if (inner.includes('data-type="taskItem"')) {
+          return `<ul data-type="taskList"${attrs}>${inner}</ul>`;
+        }
+        return match;
+      });
+    }
+    return parsed;
   } catch {
     return processed;
   }
@@ -86,6 +165,7 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
   onStartArrow,
   onCenterElement,
   onSetEditing,
+  onDragStart,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const { provider } = useVaultStore();
@@ -404,7 +484,8 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
     },
     onDragStart: ({ event }) => {
       event.stopPropagation();
-      onSelect(event as any);
+      onSelect(event as unknown as React.MouseEvent);
+      onDragStart?.();
     },
   }, {
     drag: {
@@ -495,6 +576,7 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
     <div
       ref={containerRef}
       tabIndex={-1}
+      data-board-element="true"
       style={{
         position: 'absolute',
         left: element.x,

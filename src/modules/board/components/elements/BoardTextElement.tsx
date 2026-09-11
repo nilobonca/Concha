@@ -11,10 +11,11 @@ interface BoardTextElementProps {
   snappedHandle?: HandlePosition | null;
   zoom: number;
   canvasTheme?: 'dark' | 'light';
-  onSelect: () => void;
+  onSelect: (e?: React.MouseEvent | React.PointerEvent) => void;
   onUpdate: (updates: Partial<BoardElement>) => void;
   onDelete: () => void;
   onStartArrow: (handle: HandlePosition, e: React.PointerEvent) => void;
+  onDragStart?: () => void;
 }
 
 const FONT_SIZES = [14, 18, 24, 32];
@@ -29,6 +30,7 @@ export const BoardTextElement: React.FC<BoardTextElementProps> = ({
   onUpdate,
   onDelete,
   onStartArrow,
+  onDragStart,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const isLight = canvasTheme === 'light';
@@ -44,7 +46,8 @@ export const BoardTextElement: React.FC<BoardTextElementProps> = ({
     },
     onDragStart: ({ event }) => {
       event.stopPropagation();
-      onSelect();
+      onSelect(event as any);
+      onDragStart?.();
     },
   }, {
     drag: {
@@ -64,6 +67,7 @@ export const BoardTextElement: React.FC<BoardTextElementProps> = ({
 
   return (
     <div
+      data-board-element="true"
       style={{
         position: 'absolute',
         left: element.x,
@@ -77,7 +81,7 @@ export const BoardTextElement: React.FC<BoardTextElementProps> = ({
       onMouseLeave={() => setIsHovered(false)}
       onClick={(e) => {
         e.stopPropagation();
-        onSelect();
+        onSelect(e);
       }}
     >
       <ElementHandles

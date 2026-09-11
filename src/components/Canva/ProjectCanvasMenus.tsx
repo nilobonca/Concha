@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { useMinigamesStore } from '@/store/minigamesStore';
 import { SafeIcon } from '@/components/common/SafeIcon';
+import { navigateToVault } from '@/utils/navigationHelper';
 import { ClickerMinigameHost } from './ClickerMinigameHost';
 import { CoinFlipMinigameHost } from './CoinFlipMinigameHost';
 import { CardsMinigameHost } from './CardsMinigameHost';
@@ -429,7 +430,7 @@ export const ProjectCanvasMenus: React.FC<ProjectCanvasMenusProps> = ({
 
         {/* Vault Navigation Toggle */}
         <button
-          onClick={() => router.push('/vault')}
+          onClick={() => navigateToVault(router)}
           className={clsx(buttonClass, "border-[#1831D7]/30 hover:border-[#7F95FF]/60")}
           title="Abrir Vault de Anotações"
         >

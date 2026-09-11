@@ -80,29 +80,51 @@ export const BoardNoteActions: React.FC<BoardNoteActionsProps> = ({
 
         {showColorPicker && (
           <div
-            className="absolute top-full left-1/2 -translate-x-1/2 mt-2 bg-white dark:bg-[#181822] border border-stone-200/90 dark:border-white/10 p-2.5 rounded-2xl shadow-2xl z-50 flex items-center gap-1.5 animate-in fade-in zoom-in-95 duration-150"
+            className="absolute top-full left-1/2 -translate-x-1/2 mt-2 bg-white dark:bg-[#181822] border border-stone-200/90 dark:border-white/10 p-3 rounded-2xl shadow-2xl z-50 w-72 flex flex-col gap-2 animate-in fade-in zoom-in-95 duration-150"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
           >
-            {Object.entries(themes).map(([key, t]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onUpdateColor(t.border);
-                  setShowColorPicker(false);
-                }}
-                className={clsx(
-                  "w-6 h-6 rounded-lg border-2 transition-transform hover:scale-110 cursor-pointer shrink-0",
-                  t.border.toLowerCase() === themeBorder.toLowerCase() ? "border-[#1831D7] scale-105" : "border-transparent"
-                )}
-                style={{
-                  backgroundColor: t.border,
-                }}
-                title={t.name}
-              />
-            ))}
+            <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400 dark:text-neutral-500">
+              Escolha a Cor
+            </span>
+            <div className="grid grid-cols-6 gap-1.5">
+              {Object.entries(themes).map(([key, t]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onUpdateColor(t.border);
+                    setShowColorPicker(false);
+                  }}
+                  className={clsx(
+                    "w-7 h-7 rounded-lg transition-transform hover:scale-110 cursor-pointer shrink-0",
+                    t.border.toLowerCase() === themeBorder.toLowerCase() ? "ring-2 ring-[#7F95FF] scale-105" : ""
+                  )}
+                  style={{
+                    backgroundColor: t.bg,
+                    border: `2.5px solid ${t.border}`,
+                  }}
+                  title={t.name}
+                />
+              ))}
+              {/* Seletor de Cor Livre */}
+              <label
+                className="w-7 h-7 rounded-lg border border-dashed border-stone-300 dark:border-white/20 transition-transform hover:scale-110 cursor-pointer flex items-center justify-center relative overflow-hidden bg-stone-50 dark:bg-white/5"
+                title="Cor personalizada"
+              >
+                <input
+                  type="color"
+                  value={themeBorder}
+                  onChange={(e) => {
+                    onUpdateColor(e.target.value);
+                    setShowColorPicker(false);
+                  }}
+                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                />
+                <Palette className="w-3 h-3 text-stone-500 dark:text-neutral-400 pointer-events-none" />
+              </label>
+            </div>
           </div>
         )}
       </div>

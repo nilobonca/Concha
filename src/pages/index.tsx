@@ -409,6 +409,7 @@ export default function Dashboard() {
                   return;
                 }
               }
+              useVaultStore.getState().startEnteringVault(activeVault.name);
               router.push(`/vault?doc=${encodeURIComponent(pathOrTitle)}`);
             }}
           />

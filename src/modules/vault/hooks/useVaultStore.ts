@@ -57,6 +57,8 @@ interface VaultState {
   vaultName: string;
   isConnected: boolean;
   isLoading: boolean;
+  isEnteringVault: boolean;
+  enteringVaultName: string | null;
   isSaving: boolean;
   lastSavedAt: number | null;
 
@@ -103,6 +105,8 @@ interface VaultState {
   disconnect: () => Promise<void>;
   refreshNodes: () => Promise<void>;
   toggleFolder: (path: string) => void;
+  startEnteringVault: (vaultName?: string) => void;
+  finishEnteringVault: () => void;
 
   setVaultName: (name: string) => Promise<void>;
   setSidebarWidth: (width: number) => void;
@@ -141,6 +145,7 @@ interface VaultState {
   saveDocumentContent: (path: string) => Promise<void>;
   updateContent: (content: string) => void;
   saveCurrentDocument: () => Promise<void>;
+  flushPendingSaves: () => Promise<void>;
   syncCanvasNote: (path: string, markdown: string) => void;
 
   createFile: (folderPath?: string, name?: string, initialContent?: string, shouldOpen?: boolean) => Promise<string>;
@@ -258,6 +263,8 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   vaultName: 'Meu Vault Local',
   isConnected: false,
   isLoading: true,
+  isEnteringVault: false,
+  enteringVaultName: null,
   isSaving: false,
   lastSavedAt: null,
 
@@ -328,6 +335,16 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   toggleNoteSearch: () => set(state => ({ isNoteSearchOpen: !state.isNoteSearchOpen })),
   setActiveEditorRef: (activeEditorRef: Editor | null) => set({ activeEditorRef }),
 
+  startEnteringVault: (vaultName?: string) => set({
+    isEnteringVault: true,
+    enteringVaultName: vaultName || get().vaultName || 'Vault',
+  }),
+
+  finishEnteringVault: () => set({
+    isEnteringVault: false,
+    enteringVaultName: null,
+  }),
+
   initializeStorage: async () => {
     set({ isLoading: true });
 
@@ -366,11 +383,13 @@ export const useVaultStore = create<VaultState>((set, get) => ({
           set({
             nodes: sortNodes(nodes),
             isLoading: false,
+            isEnteringVault: false,
+            enteringVaultName: null,
             layout: effectiveLayout,
             activePaneId: initialActivePaneId,
           });
         } catch {
-          set({ isLoading: false });
+          set({ isLoading: false, isEnteringVault: false, enteringVaultName: null });
         }
         return;
       }
@@ -396,6 +415,8 @@ export const useVaultStore = create<VaultState>((set, get) => ({
           vaultName: currentVaultMeta?.name || savedVaultName || fsa.vaultName,
           isConnected: true,
           isLoading: false,
+          isEnteringVault: false,
+          enteringVaultName: null,
           nodes: sortNodes(nodes),
           layout: effectiveLayout,
           activePaneId: initialActivePaneId,
@@ -442,6 +463,8 @@ export const useVaultStore = create<VaultState>((set, get) => ({
         vaultName: currentVaultMeta?.name || savedVaultName || 'Pasta Windows (HD)',
         isConnected: false,
         isLoading: false,
+        isEnteringVault: false,
+        enteringVaultName: null,
         nodes: [],
         layout: effectiveLayout,
         activePaneId: initialActivePaneId,
@@ -461,6 +484,8 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       vaultName: currentVaultMeta?.name || savedVaultName || idb.vaultName,
       isConnected: true,
       isLoading: false,
+      isEnteringVault: false,
+      enteringVaultName: null,
       nodes: sortNodes(nodes),
       layout: effectiveLayout,
       activePaneId: initialActivePaneId,
@@ -558,6 +583,8 @@ export const useVaultStore = create<VaultState>((set, get) => ({
         vaultName: folderVaultName,
         isConnected: true,
         isLoading: false,
+        isEnteringVault: false,
+        enteringVaultName: null,
         nodes: sortNodes(nodes),
         layout: vaultLayout,
         activePaneId: initialActivePaneId,
@@ -581,7 +608,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       return true;
     } catch (err) {
       console.error('Error connecting to local folder:', err);
-      set({ isLoading: false });
+      set({ isLoading: false, isEnteringVault: false, enteringVaultName: null });
       return false;
     }
   },
@@ -608,6 +635,8 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       vaultName: finalName,
       isConnected: true,
       isLoading: false,
+      isEnteringVault: false,
+      enteringVaultName: null,
       nodes: sortNodes(nodes),
       layout: vaultLayout,
       activePaneId: initialActivePaneId,
@@ -695,6 +724,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       dropPreview: null,
       activePath: tab.path,
       tabs: newLeaf ? newLeaf.tabs : [tab],
+      activeContent: get().documentCache[tab.path]?.content || '',
     });
 
     if (tab.path.startsWith('canvas:') || tab.type === 'audio' || tab.type === 'image') {
@@ -797,6 +827,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       dropPreview: null,
       activePath: tabPath,
       tabs: targetPane?.tabs || [],
+      activeContent: get().documentCache[tabPath]?.content || '',
     });
   },
 
@@ -929,6 +960,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       activePaneId: targetId,
       activePath: path,
       tabs: targetPane?.tabs || [tab],
+      activeContent: get().documentCache[path]?.content || '',
       isEditing: true
     });
 
@@ -1142,6 +1174,13 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       return htmlContent;
     } catch (err) {
       console.warn(`Documento não encontrado ou falha ao ler em ${path}:`, err);
+      set(state => ({
+        documentCache: {
+          ...state.documentCache,
+          [path]: { content: '', isDirty: false, lastSavedAt: Date.now() }
+        },
+        activeContent: state.activePath === path ? '' : state.activeContent
+      }));
       return '';
     }
   },
@@ -1258,6 +1297,21 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     const { activePath } = get();
     if (activePath) {
       await get().saveDocumentContent(activePath);
+    }
+  },
+
+  flushPendingSaves: async () => {
+    const paths = Array.from(docSaveTimeouts.keys());
+    for (const p of paths) {
+      const t = docSaveTimeouts.get(p);
+      if (t) clearTimeout(t);
+      docSaveTimeouts.delete(p);
+    }
+    const { documentCache } = get();
+    const dirtyPaths = Object.keys(documentCache).filter(p => documentCache[p]?.isDirty);
+    const allPaths = Array.from(new Set([...paths, ...dirtyPaths]));
+    for (const p of allPaths) {
+      await get().saveDocumentContent(p);
     }
   },
 
@@ -1547,7 +1601,8 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   },
 
   renameNode: async (oldPath: string, newPath: string, isFolder: boolean = false) => {
-    let { provider, layout, activePath, documentCache } = get();
+    let { provider } = get();
+    const { layout, activePath, documentCache } = get();
     if (!provider) {
       await get().initializeStorage();
       provider = get().provider;
