@@ -44,7 +44,7 @@ export const VaultSlashMenu: React.FC<VaultSlashMenuProps> = ({
       style={position ? { top: `${position.top}px`, left: `${position.left}px` } : undefined}
       className="absolute z-50 w-72 max-h-80 overflow-y-auto bg-white dark:bg-[#16161D] border border-stone-200 dark:border-white/10 rounded-xl shadow-2xl p-1.5 custom-scrollbar select-none animate-in fade-in zoom-in-95 duration-100"
     >
-      <div className="px-2.5 py-1 text-[10px] font-semibold tracking-wider text-stone-400 dark:text-neutral-500 uppercase border-b border-stone-100 dark:border-white/5 mb-1">
+      <div className="px-2.5 py-1 text-[10px] font-bold tracking-wider text-stone-600 dark:text-neutral-500 uppercase border-b border-stone-100 dark:border-white/5 mb-1">
         Comandos de Formatação
       </div>
 
@@ -80,15 +80,15 @@ export const VaultSlashMenu: React.FC<VaultSlashMenuProps> = ({
                   <IconComponent className="w-3.5 h-3.5" />
                 </div>
                 <div className="min-w-0">
-                  <div className="text-xs font-medium truncate">{cmd.title}</div>
-                  <div className="text-[10px] text-stone-400 dark:text-neutral-500 truncate leading-tight">
+                  <div className="text-xs font-semibold text-stone-900 dark:text-neutral-100 truncate">{cmd.title}</div>
+                  <div className="text-[10px] text-stone-600 dark:text-neutral-400 truncate leading-tight">
                     {cmd.description}
                   </div>
                 </div>
               </div>
 
               {cmd.shortcut && (
-                <span className="text-[10px] font-mono text-stone-400 dark:text-neutral-500 px-1 py-0.5 rounded bg-stone-100/70 dark:bg-white/5 shrink-0 ml-2">
+                <span className="text-[10px] font-mono text-stone-600 dark:text-neutral-400 px-1 py-0.5 rounded bg-stone-100 dark:bg-white/5 shrink-0 ml-2 font-medium">
                   {cmd.shortcut}
                 </span>
               )}

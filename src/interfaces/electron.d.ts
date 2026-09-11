@@ -32,6 +32,36 @@ export interface ElectronAPI {
   startDownloadUpdate: () => Promise<void>;
   quitAndInstall: () => Promise<void>;
   onUpdateStatus: (callback: (payload: UpdateStatusPayload) => void) => () => void;
+
+  // Vaults Registry Persistence API
+  loadVaultsRegistry: () => Promise<{
+    vaults: Array<{
+      id: string;
+      name: string;
+      storageType: 'fsa' | 'idb';
+      folderName?: string;
+      path?: string;
+      updatedAt: number;
+      documentCount?: number;
+      canvasCount?: number;
+      isDefault?: boolean;
+    }>;
+    activeVaultId?: string;
+  } | null>;
+  saveVaultsRegistry: (data: {
+    vaults: Array<{
+      id: string;
+      name: string;
+      storageType: 'fsa' | 'idb';
+      folderName?: string;
+      path?: string;
+      updatedAt: number;
+      documentCount?: number;
+      canvasCount?: number;
+      isDefault?: boolean;
+    }>;
+    activeVaultId?: string;
+  }) => Promise<boolean>;
 }
 
 declare global {

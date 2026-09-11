@@ -3,47 +3,48 @@
 
 @custom-variant dark (&:is(.dark *));
 
-:root {
+:root,
+.light {
   --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-serif: 'Cinzel', Georgia, serif;
   --font-mono: 'JetBrains Mono', monospace;
 
-  /* Official Light Palette */
+  /* Official Light Palette - High Contrast */
   --background: #F4F0E6;
-  --foreground: #17192A;
+  --foreground: #11131F;
   --radius: 0.75rem;
   --card: #ffffff;
-  --card-foreground: #17192A;
+  --card-foreground: #11131F;
   --popover: #ffffff;
-  --popover-foreground: #17192A;
+  --popover-foreground: #11131F;
   --primary: #1831D7;
   --primary-foreground: #F4F0E6;
   --secondary: #e5eef7;
-  --secondary-foreground: #17192A;
+  --secondary-foreground: #11131F;
   --muted: #e5eef7;
-  --muted-foreground: #475569;
+  --muted-foreground: #334155;
   --accent: #7F95FF;
   --accent-foreground: #ffffff;
   --destructive: #ef4444;
-  --border: rgba(23, 25, 42, 0.12);
-  --input: rgba(23, 25, 42, 0.15);
-  --ring: #7F95FF;
+  --border: rgba(17, 19, 31, 0.14);
+  --input: rgba(17, 19, 31, 0.16);
+  --ring: #1831D7;
   --chart-1: #1831D7;
   --chart-2: #7F95FF;
   --chart-3: #52B1FF;
   --chart-4: #B4D3F1;
   --chart-5: #001FFF;
   --sidebar: #ECE7DA;
-  --sidebar-foreground: #17192A;
+  --sidebar-foreground: #11131F;
   --sidebar-primary: #1831D7;
   --sidebar-primary-foreground: #F4F0E6;
   --sidebar-accent: #E2DCCF;
-  --sidebar-accent-foreground: #17192A;
-  --sidebar-border: rgba(23, 25, 42, 0.1);
-  --sidebar-ring: #7F95FF;
+  --sidebar-accent-foreground: #11131F;
+  --sidebar-border: rgba(17, 19, 31, 0.12);
+  --sidebar-ring: #1831D7;
 
   /* Official Brand Palette Tokens */
-  --brand-navy: #17192A;
+  --brand-navy: #11131F;
   --brand-ivory: #F4F0E6;
   --brand-cobalt: #1831D7;
   --brand-periwinkle: #7F95FF;
@@ -98,13 +99,6 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #17192A;
-    --foreground: #F4F0E6;
-  }
 }
 
 html,
@@ -230,6 +224,40 @@ body {
 
 .dark .custom-scrollbar {
   scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+}
+
+/* Ocultar barra de rolagem mantendo a rolagem ativa (no-scrollbar) */
+@utility no-scrollbar {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+  &::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+  }
+}
+
+@utility scrollbar-none {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+  &::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+  }
+}
+
+.no-scrollbar::-webkit-scrollbar,
+.scrollbar-none::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+.no-scrollbar,
+.scrollbar-none {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
 }
 
 /* Forçar o Canvas do DiceBox a cobrir toda a tela */
@@ -427,10 +455,10 @@ body {
 .vault-wikilink {
   display: inline-flex;
   align-items: center;
-  color: #7F95FF;
-  font-weight: 500;
-  background-color: rgba(127, 149, 255, 0.15);
-  border: 1px solid rgba(127, 149, 255, 0.3);
+  color: #1831D7;
+  font-weight: 600;
+  background-color: rgba(24, 49, 215, 0.08);
+  border: 1px solid rgba(24, 49, 215, 0.22);
   padding: 1px 6px;
   border-radius: 4px;
   font-size: 0.875rem;
@@ -442,17 +470,33 @@ body {
 }
 
 .vault-wikilink:hover {
+  color: #001FFF;
+  background-color: rgba(24, 49, 215, 0.15);
+  border-color: rgba(24, 49, 215, 0.4);
+  text-decoration: underline;
+}
+
+.dark .vault-wikilink {
+  color: #7F95FF;
+  background-color: rgba(127, 149, 255, 0.15);
+  border-color: rgba(127, 149, 255, 0.3);
+}
+
+.dark .vault-wikilink:hover {
   color: #B4D3F1;
   background-color: rgba(127, 149, 255, 0.25);
   border-color: rgba(127, 149, 255, 0.5);
-  text-decoration: underline;
 }
 
 .md-wikilink-raw-editing {
   font-family: var(--font-mono, monospace) !important;
-  color: #7F95FF !important;
+  color: #1831D7 !important;
   font-weight: 500 !important;
   background: transparent !important;
+}
+
+.dark .md-wikilink-raw-editing {
+  color: #7F95FF !important;
 }
 
 /* MARKDOWN SYNTAX REVEAL MARKS */
@@ -790,5 +834,368 @@ input.app-region-no-drag {
   -webkit-app-region: no-drag !important;
   pointer-events: auto !important;
 }
+
+/* ============================================================
+   MARKDOWN & TIPTAP TYPOGRAPHY STYLES (.prose, .tiptap, .board-note-preview)
+   ============================================================ */
+
+/* TipTap Editor and Reading View Typography Hierarchy */
+.prose,
+.tiptap {
+  font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
+  color: #11131F;
+}
+
+.dark .prose,
+.dark .tiptap {
+  color: #F4F0E6;
+}
+
+.prose h1,
+.tiptap h1 {
+  font-size: 2rem !important;
+  font-weight: 700 !important;
+  line-height: 1.25 !important;
+  letter-spacing: -0.025em !important;
+  margin-top: 1.75rem !important;
+  margin-bottom: 0.75rem !important;
+  color: inherit !important;
+}
+
+.prose h2,
+.tiptap h2 {
+  font-size: 1.5rem !important;
+  font-weight: 600 !important;
+  line-height: 1.3 !important;
+  letter-spacing: -0.02em !important;
+  margin-top: 1.5rem !important;
+  margin-bottom: 0.6rem !important;
+  color: inherit !important;
+}
+
+.prose h3,
+.tiptap h3 {
+  font-size: 1.25rem !important;
+  font-weight: 600 !important;
+  line-height: 1.35 !important;
+  letter-spacing: -0.015em !important;
+  margin-top: 1.25rem !important;
+  margin-bottom: 0.5rem !important;
+  color: inherit !important;
+}
+
+.prose h4,
+.tiptap h4 {
+  font-size: 1.1rem !important;
+  font-weight: 600 !important;
+  line-height: 1.4 !important;
+  margin-top: 1rem !important;
+  margin-bottom: 0.4rem !important;
+  color: inherit !important;
+}
+
+.prose h5,
+.tiptap h5 {
+  font-size: 0.95rem !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.04em !important;
+  margin-top: 0.85rem !important;
+  margin-bottom: 0.35rem !important;
+  opacity: 0.9 !important;
+}
+
+.prose h6,
+.tiptap h6 {
+  font-size: 0.85rem !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  margin-top: 0.75rem !important;
+  margin-bottom: 0.3rem !important;
+  opacity: 0.75 !important;
+}
+
+.prose > :first-child,
+.tiptap > :first-child {
+  margin-top: 0 !important;
+}
+
+/* Paragraph Spacing & Line Height */
+.prose p,
+.tiptap p {
+  margin-top: 0.5rem !important;
+  margin-bottom: 0.75rem !important;
+  line-height: 1.7 !important;
+  color: inherit !important;
+}
+
+/* Empty Paragraphs & Consecutive Enters - preserve physical vertical height */
+.prose p:empty,
+.prose p:has(> br:only-child),
+.tiptap p:empty,
+.tiptap p:has(> br:only-child),
+.tiptap p > br.ProseMirror-trailingBreak:only-child {
+  min-height: 1.5rem !important;
+  margin-bottom: 0.75rem !important;
+  display: block !important;
+}
+
+/* Unordered & Ordered Lists */
+.prose ul:not([data-type="taskList"]),
+.tiptap ul:not([data-type="taskList"]) {
+  list-style-type: disc !important;
+  padding-left: 1.5rem !important;
+  margin-top: 0.5rem !important;
+  margin-bottom: 0.75rem !important;
+}
+
+.prose ol,
+.tiptap ol {
+  list-style-type: decimal !important;
+  padding-left: 1.5rem !important;
+  margin-top: 0.5rem !important;
+  margin-bottom: 0.75rem !important;
+}
+
+.prose li,
+.tiptap li {
+  margin-top: 0.25rem !important;
+  margin-bottom: 0.25rem !important;
+  line-height: 1.6 !important;
+  color: inherit !important;
+}
+
+.prose ul ul,
+.prose ol ol,
+.prose ul ol,
+.prose ol ul,
+.tiptap ul ul,
+.tiptap ol ol,
+.tiptap ul ol,
+.tiptap ol ul {
+  margin-top: 0.25rem !important;
+  margin-bottom: 0.25rem !important;
+}
+
+/* Blockquotes */
+.prose blockquote:not(.vault-callout),
+.tiptap blockquote:not(.vault-callout) {
+  border-left: 3px solid #7F95FF !important;
+  padding-left: 1rem !important;
+  margin: 1rem 0 !important;
+  font-style: italic !important;
+  opacity: 0.9 !important;
+}
+
+/* Inline Code */
+.prose code:not(pre code),
+.tiptap code:not(pre code) {
+  font-family: var(--font-mono, monospace) !important;
+  font-size: 0.875em !important;
+  padding: 0.15rem 0.35rem !important;
+  border-radius: 0.375rem !important;
+  background-color: rgba(127, 149, 255, 0.12) !important;
+  color: #1831D7 !important;
+}
+
+.dark .prose code:not(pre code),
+.dark .tiptap code:not(pre code) {
+  background-color: rgba(127, 149, 255, 0.18) !important;
+  color: #7F95FF !important;
+}
+
+/* Horizontal Rule */
+.prose hr,
+.tiptap hr {
+  border: none !important;
+  border-top: 1px solid rgba(127, 149, 255, 0.25) !important;
+  margin: 1.5rem 0 !important;
+}
+
+/* Tables */
+.prose table,
+.tiptap table {
+  width: 100% !important;
+  border-collapse: collapse !important;
+  margin: 1rem 0 !important;
+}
+
+.prose th,
+.prose td,
+.tiptap th,
+.tiptap td {
+  border: 1px solid rgba(127, 149, 255, 0.2) !important;
+  padding: 0.5rem 0.75rem !important;
+  text-align: left !important;
+}
+
+.prose th,
+.tiptap th {
+  background: rgba(127, 149, 255, 0.1) !important;
+  font-weight: 600 !important;
+}
+
+/* ============================================================
+   BOARD NOTE PREVIEW TYPOGRAPHY (.board-note-preview)
+   ============================================================ */
+.board-note-preview {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+.board-note-preview h1 {
+  font-size: 1.35rem !important;
+  font-weight: 700 !important;
+  line-height: 1.25 !important;
+  margin-top: 0.75rem !important;
+  margin-bottom: 0.35rem !important;
+  color: #17192A !important;
+}
+
+.board-note-preview h2 {
+  font-size: 1.2rem !important;
+  font-weight: 600 !important;
+  line-height: 1.3 !important;
+  margin-top: 0.65rem !important;
+  margin-bottom: 0.3rem !important;
+  color: #17192A !important;
+}
+
+.board-note-preview h3 {
+  font-size: 1.05rem !important;
+  font-weight: 600 !important;
+  line-height: 1.35 !important;
+  margin-top: 0.55rem !important;
+  margin-bottom: 0.25rem !important;
+  color: #17192A !important;
+}
+
+.board-note-preview h4,
+.board-note-preview h5,
+.board-note-preview h6 {
+  font-size: 0.95rem !important;
+  font-weight: 600 !important;
+  margin-top: 0.45rem !important;
+  margin-bottom: 0.2rem !important;
+  color: #17192A !important;
+}
+
+.board-note-preview > :first-child {
+  margin-top: 0 !important;
+}
+
+.board-note-preview p {
+  margin-top: 0.35rem !important;
+  margin-bottom: 0.5rem !important;
+  line-height: 1.55 !important;
+  font-size: 0.875rem !important;
+  color: #17192A !important;
+}
+
+.board-note-preview p:empty,
+.board-note-preview p:has(> br:only-child) {
+  min-height: 1.25rem !important;
+  margin-bottom: 0.5rem !important;
+  display: block !important;
+}
+
+.board-note-preview ul:not([data-type="taskList"]) {
+  list-style-type: disc !important;
+  padding-left: 1.2rem !important;
+  margin-top: 0.35rem !important;
+  margin-bottom: 0.5rem !important;
+  color: #17192A !important;
+}
+
+.board-note-preview ol {
+  list-style-type: decimal !important;
+  padding-left: 1.2rem !important;
+  margin-top: 0.35rem !important;
+  margin-bottom: 0.5rem !important;
+  color: #17192A !important;
+}
+
+.board-note-preview li {
+  margin: 0.15rem 0 !important;
+  font-size: 0.875rem !important;
+  line-height: 1.4 !important;
+  color: #17192A !important;
+}
+
+.board-note-preview blockquote:not(.vault-callout) {
+  border-left: 3px solid #7F95FF !important;
+  padding-left: 0.65rem !important;
+  margin: 0.5rem 0 !important;
+  font-style: italic !important;
+  opacity: 0.9 !important;
+  color: #17192A !important;
+}
+
+.board-note-preview code:not(pre code) {
+  font-family: var(--font-mono, monospace) !important;
+  font-size: 0.8em !important;
+  padding: 0.1rem 0.25rem !important;
+  border-radius: 0.25rem !important;
+  background-color: rgba(24, 49, 215, 0.1) !important;
+  color: #1831D7 !important;
+}
+
+/* Marca-texto (Highlight) */
+.prose mark,
+.tiptap mark,
+.board-note-preview mark,
+mark {
+  background-color: rgba(250, 204, 21, 0.38) !important;
+  color: inherit !important;
+  padding: 0.1rem 0.3rem !important;
+  border-radius: 0.25rem !important;
+}
+
+.dark .prose mark,
+.dark .tiptap mark,
+.dark .board-note-preview mark,
+.dark mark {
+  background-color: rgba(250, 204, 21, 0.25) !important;
+  color: #fef08a !important;
+}
+
+/* Tachado (Strikethrough) */
+.prose s,
+.prose del,
+.tiptap s,
+.tiptap del,
+.board-note-preview s,
+.board-note-preview del,
+s,
+del {
+  text-decoration: line-through !important;
+  opacity: 0.8 !important;
+}
+
+/* Negrito (Bold) */
+.prose strong,
+.prose b,
+.tiptap strong,
+.tiptap b,
+.board-note-preview strong,
+.board-note-preview b,
+strong,
+b {
+  font-weight: 700 !important;
+}
+
+/* Itálico (Italic) */
+.prose em,
+.prose i,
+.tiptap em,
+.tiptap i,
+.board-note-preview em,
+.board-note-preview i,
+em,
+i {
+  font-style: italic !important;
+}
+
 
 

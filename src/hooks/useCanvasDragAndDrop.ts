@@ -23,6 +23,7 @@ export interface UseCanvasDragAndDropProps {
   activeAreas: ActiveArea[];
   activeWalls: ActiveWall[];
   activeSoundboardItems: ActiveSoundboardItem[];
+  activeNotes?: ActiveNote[];
   savedImages: Images[];
   savedAudios: Audios[];
   soundboardItems: SoundboardItem[];
@@ -48,6 +49,7 @@ export const useCanvasDragAndDrop = ({
   activeAreas,
   activeWalls,
   activeSoundboardItems,
+  activeNotes = [],
   savedImages,
   savedAudios,
   soundboardItems,
@@ -122,7 +124,16 @@ export const useCanvasDragAndDrop = ({
           positions[id] = { x: sbItem.position.x, y: sbItem.position.y };
           return;
         }
+        const note = activeNotes.find((n) => n.id === id);
+        if (note) {
+          positions[id] = { x: note.position.x, y: note.position.y };
+          return;
+        }
       });
+      if (!positions[anchorId]) {
+        const note = activeNotes.find((n) => n.id === anchorId);
+        if (note) positions[anchorId] = { x: note.position.x, y: note.position.y };
+      }
       dragStartPositions.current = positions;
     },
     [
@@ -133,6 +144,7 @@ export const useCanvasDragAndDrop = ({
       activeAreas,
       activeWalls,
       activeSoundboardItems,
+      activeNotes,
     ]
   );
 
@@ -206,9 +218,12 @@ export const useCanvasDragAndDrop = ({
           console.warn('Falha ao criar nota no Vault automaticamente:', err);
         }
 
+        const noteTitle = vaultPath ? vaultPath.split('/').pop()?.replace(/\.(md|txt)$/i, '') : 'Nova Nota';
+
         const newNote: ActiveNote = {
           id: uuidv4(),
           type: 'note',
+          title: noteTitle || 'Nova Nota',
           content: '',
           position: { x, y },
           width: 200,

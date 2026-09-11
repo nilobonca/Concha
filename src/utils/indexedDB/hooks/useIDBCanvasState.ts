@@ -423,10 +423,11 @@ export function useIDBCanvasState(
     const addNotePersisted = useCallback((note: ActiveNote, parentId?: string | null) => {
         setActiveNotes(prev => [...prev, note]);
         updateItemPersisted(note, 'Note');
+        const noteName = note.title || (note.vaultPath ? note.vaultPath.split('/').pop()?.replace(/\.(md|txt)$/i, '') : '') || 'Nota';
         const newLayer: Layer = {
             id: uuidv4(),
             type: 'item',
-            name: 'Note',
+            name: noteName,
             visible: true,
             locked: false,
             parentId: parentId || null,
@@ -440,7 +441,17 @@ export function useIDBCanvasState(
     const updateNotePersisted = useCallback((note: ActiveNote) => {
         setActiveNotes(prev => prev.map(n => n.id === note.id ? note : n));
         updateItemPersisted(note, 'Note');
-    }, [setActiveNotes, updateItemPersisted]);
+        setActiveLayers(prev => {
+            const layer = prev.find(l => l.itemId === note.id);
+            const expectedName = note.title || (note.vaultPath ? note.vaultPath.split('/').pop()?.replace(/\.(md|txt)$/i, '') : '') || 'Nota';
+            if (layer && layer.name !== expectedName) {
+                const newLayer = { ...layer, name: expectedName };
+                updateItemPersisted(newLayer, 'Layer');
+                return prev.map(l => l.id === newLayer.id ? newLayer : l);
+            }
+            return prev;
+        });
+    }, [setActiveNotes, updateItemPersisted, setActiveLayers]);
 
     const deleteNotePersisted = useCallback((id: string) => {
         deleteItemPersisted(id);

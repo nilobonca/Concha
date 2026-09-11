@@ -126,7 +126,7 @@ export const useProjectCanvasCore = () => {
     savedAudios: idb.savedAudios, soundboardItems: idb.soundboardItems,
     addToHistory: historyHook.addToHistory, addImagePersisted: idb.addImagePersisted,
     addAreaPersisted: idb.addAreaPersisted, addSoundboardItemPersisted: idb.addSoundboardItemPersisted,
-    addNotePersisted: idb.addNotePersisted, createPin: creators.createPin,
+    addNotePersisted: idb.addNotePersisted, activeNotes: idb.activeNotes, createPin: creators.createPin,
     saveAudio: idb.saveAudio, saveImage: idb.saveImage, setPendingUploads: batchUpload.setPendingUploads,
     tool: drawingTools.tool, currentAreaPoints: drawingTools.currentAreaPoints
   });

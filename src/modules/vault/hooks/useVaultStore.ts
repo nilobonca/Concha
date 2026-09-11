@@ -8,6 +8,7 @@ import { FSAStorageProvider } from '../storage/FSAStorageProvider';
 import { IDBStorageProvider } from '../storage/IDBStorageProvider';
 import { VaultNode } from '../interfaces/vault';
 import { normalizeNoteTitle } from '../utils/wikilinkUtils';
+import { sanitizeVaultFileName, sanitizeVaultPath } from '../utils/fileNameUtils';
 import { useVaultRegistryStore, RegisteredVault } from './useVaultRegistryStore';
 import Fuse from 'fuse.js';
 import { markdownToHtml, htmlToMarkdown } from '../utils/markdownConverter';
@@ -121,10 +122,12 @@ interface VaultState {
   setDropPreview: (dropPreview: DropPreviewState | null) => void;
 
   // Documents & Tabs
+  openNewTab: (targetPaneId?: string) => void;
   openDocument: (path: string, targetPaneId?: string) => Promise<void>;
   openMediaTab: (path: string, type: 'audio' | 'image', title?: string, targetPaneId?: string) => void;
   openOrCreateDocumentByTitle: (title: string, targetPaneId?: string) => Promise<void>;
   openCanvasTab: (canvasId: string, title?: string, targetPaneId?: string) => void;
+  updateCanvasTitleInTabs: (canvasId: string, newTitle: string) => void;
   closeTab: (path: string) => void;
   setActiveTab: (path: string) => void;
   
@@ -349,8 +352,36 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     const currentVaultMeta = registeredVaults.find(v => v.id === savedActiveId);
     const isFSA = currentVaultMeta ? currentVaultMeta.storageType === 'fsa' : (savedActiveId.startsWith('fsa-') || savedActiveId === 'fsa-main');
 
+    const currentProvider = get().provider;
+    const isAlreadyConnected = get().isConnected && currentProvider?.isConnected && get().vaultId === savedActiveId;
+
     if (isFSA) {
-      const fsa = new FSAStorageProvider(savedActiveId, currentVaultMeta?.name || savedVaultName || 'Pasta Windows (HD)');
+      if (isAlreadyConnected && currentProvider instanceof FSAStorageProvider) {
+        // Já está conectado e pronto! Não recria provider nem reseta estado para desconectado
+        try {
+          const nodes = await currentProvider.listNodes();
+          set({
+            nodes: sortNodes(nodes),
+            isLoading: false,
+            layout: effectiveLayout,
+            activePaneId: initialActivePaneId,
+          });
+        } catch {
+          set({ isLoading: false });
+        }
+        return;
+      }
+
+      const fsa = (currentProvider instanceof FSAStorageProvider && currentProvider.vaultId === savedActiveId)
+        ? currentProvider
+        : new FSAStorageProvider(savedActiveId, currentVaultMeta?.name || savedVaultName || 'Pasta Windows (HD)');
+      fsa.onHandleRestored = () => {
+        set({
+          isConnected: true,
+          vaultName: fsa.vaultName,
+        });
+        get().refreshNodes();
+      };
       const restored = await fsa.init();
 
       if (restored) {
@@ -366,6 +397,19 @@ export const useVaultStore = create<VaultState>((set, get) => ({
           layout: effectiveLayout,
           activePaneId: initialActivePaneId,
         });
+
+        // Atualiza o caminho físico no registro caso seja descoberto
+        fsa.getRootPhysicalPath().then((discoveredPath) => {
+          if (discoveredPath) {
+            useVaultRegistryStore.getState().syncCurrentVault({
+              id: savedActiveId,
+              name: currentVaultMeta?.name || savedVaultName || fsa.vaultName,
+              storageType: 'fsa',
+              folderName: fsa.vaultName,
+              path: discoveredPath,
+            });
+          }
+        }).catch(() => {});
 
         // Se havia documento ativo na folha inicial, valida se o arquivo realmente existe no vault
         const firstPane = findPaneLeaf(effectiveLayout, initialActivePaneId);
@@ -450,18 +494,29 @@ export const useVaultStore = create<VaultState>((set, get) => ({
 
       const isNewConnection = !targetVaultId;
       const effectiveVaultId = targetVaultId || `fsa-${uuidv4().slice(0, 8)}`;
-      const fsa = new FSAStorageProvider(effectiveVaultId);
+      const existingProvider = get().provider;
+      const fsa = (existingProvider instanceof FSAStorageProvider && existingProvider.vaultId === effectiveVaultId)
+        ? existingProvider
+        : new FSAStorageProvider(effectiveVaultId);
+
+      fsa.onHandleRestored = () => {
+        set({
+          provider: fsa,
+          storageType: 'fsa',
+          vaultId: effectiveVaultId,
+          isConnected: true,
+          vaultName: fsa.vaultName,
+        });
+        get().refreshNodes();
+      };
       let connected = false;
 
-      // Se for alternar para um vault existente e forcePicker for falso, tenta carregar o handle salvo
+      // Se for alternar/reconectar para um vault existente e forcePicker for falso, tenta carregar o handle salvo
       if (!forcePicker && !isNewConnection) {
-        connected = await fsa.init();
-        if (!connected) {
-          return false;
-        }
+        connected = await fsa.reconnect();
       } else {
         // Se forcePicker for true ou for uma nova conexão, abre o seletor nativo do Windows
-        connected = await fsa.pickDirectory();
+        connected = await fsa.pickDirectory(effectiveVaultId);
       }
 
       if (!connected) return false;
@@ -472,7 +527,23 @@ export const useVaultStore = create<VaultState>((set, get) => ({
         localStorage.setItem('vault_custom_name', folderVaultName);
       }
       set({ isLoading: true });
-      const nodes = await fsa.listNodes();
+      let nodes: VaultNode[] = [];
+      try {
+        nodes = await fsa.listNodes();
+      } catch (nodeErr) {
+        console.warn('[useVaultStore] Aviso ao listar nós do vault:', nodeErr);
+      }
+
+      let rootPhysicalPath: string | null = null;
+      try {
+        rootPhysicalPath = await fsa.getRootPhysicalPath();
+        if (typeof window !== 'undefined' && rootPhysicalPath) {
+          localStorage.setItem('vault_root_physical_path', rootPhysicalPath);
+        }
+      } catch (pathErr) {
+        console.warn('[useVaultStore] Falha ao obter caminho físico:', pathErr);
+      }
+
       const vaultLayout = loadLayoutFromStorage(effectiveVaultId) || createPaneLeaf([], null);
       const initialActivePaneId = getAllPanes(vaultLayout)[0]?.id || vaultLayout.id;
       const initialPane = findPaneLeaf(vaultLayout, initialActivePaneId);
@@ -501,6 +572,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
         name: folderVaultName,
         storageType: 'fsa',
         folderName: fsa.vaultName,
+        path: rootPhysicalPath || undefined,
       });
 
       return true;
@@ -655,10 +727,10 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       activePath: nextActivePath,
       tabs: nextTabs,
       activeContent: nextActivePath ? (get().documentCache[nextActivePath]?.content || '') : '',
-      isEditing: Boolean(nextActivePath && !nextActivePath.startsWith('canvas:')),
+      isEditing: Boolean(nextActivePath && !nextActivePath.startsWith('canvas:') && !nextActivePath.startsWith('new-tab:')),
     });
 
-    if (nextActivePath && !nextActivePath.startsWith('canvas:')) {
+    if (nextActivePath && !nextActivePath.startsWith('canvas:') && !nextActivePath.startsWith('new-tab:')) {
       const ext = nextActivePath.split('.').pop()?.toLowerCase() || '';
       const isMedia = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'webm', 'opus', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'bmp', 'avif'].includes(ext);
       if (!isMedia) {
@@ -681,9 +753,11 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       activePaneId: paneId,
       activePath: path,
       tabs: pane?.tabs || [],
+      activeContent: path ? (get().documentCache[path]?.content || '') : '',
+      isEditing: Boolean(path && !path.startsWith('canvas:') && !path.startsWith('new-tab:')),
     });
 
-    if (!path.startsWith('canvas:')) {
+    if (!path.startsWith('canvas:') && !path.startsWith('new-tab:')) {
       get().loadDocumentContent(path);
     }
   },
@@ -730,6 +804,31 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     set({ layout: updated });
   },
 
+  openNewTab: (targetPaneId?: string) => {
+    const { layout, activePaneId } = get();
+    const targetId = targetPaneId || activePaneId;
+    const newTabId = `new-tab:${uuidv4().slice(0, 8)}`;
+    const tab: VaultTab = {
+      path: newTabId,
+      title: 'Nova aba',
+      type: 'empty'
+    };
+
+    const updatedLayout = insertTabInPane(layout, targetId, tab, undefined, false);
+    saveLayoutToStorage(updatedLayout, get().vaultId);
+
+    const targetPane = findPaneLeaf(updatedLayout, targetId);
+
+    set({
+      layout: updatedLayout,
+      activePaneId: targetId,
+      activePath: newTabId,
+      tabs: targetPane?.tabs || [tab],
+      activeContent: '',
+      isEditing: false,
+    });
+  },
+
   openDocument: async (path: string, targetPaneId?: string) => {
     if (!path) return;
 
@@ -753,12 +852,21 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       return;
     }
 
+    // Salva o documento atual se estiver sujo antes de trocar de nota
+    const currentActivePath = get().activePath;
+    if (currentActivePath && !currentActivePath.startsWith('canvas:') && !currentActivePath.startsWith('new-tab:')) {
+      const currentDoc = get().documentCache[currentActivePath];
+      if (currentDoc?.isDirty) {
+        await get().saveDocumentContent(currentActivePath);
+      }
+    }
+
     const { layout, activePaneId } = get();
     const targetId = targetPaneId || activePaneId;
     const title = path.split('/').pop()?.replace(/\.(md|txt)$/, '') || 'Sem título';
     const tab: VaultTab = { path, title, type: 'markdown' };
 
-    const updatedLayout = insertTabInPane(layout, targetId, tab);
+    const updatedLayout = insertTabInPane(layout, targetId, tab, undefined, true);
     saveLayoutToStorage(updatedLayout, get().vaultId);
 
     const targetPane = findPaneLeaf(updatedLayout, targetId);
@@ -775,12 +883,20 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   },
 
   openMediaTab: (path: string, type: 'audio' | 'image', title?: string, targetPaneId?: string) => {
+    const currentActivePath = get().activePath;
+    if (currentActivePath && !currentActivePath.startsWith('canvas:') && !currentActivePath.startsWith('new-tab:')) {
+      const currentDoc = get().documentCache[currentActivePath];
+      if (currentDoc?.isDirty) {
+        get().saveDocumentContent(currentActivePath);
+      }
+    }
+
     const { layout, activePaneId } = get();
     const targetId = targetPaneId || activePaneId;
     const cleanTitle = title || path.split('/').pop() || 'Mídia';
     const tab: VaultTab = { path, title: cleanTitle, type };
 
-    const updatedLayout = insertTabInPane(layout, targetId, tab);
+    const updatedLayout = insertTabInPane(layout, targetId, tab, undefined, true);
     saveLayoutToStorage(updatedLayout, get().vaultId);
 
     const targetPane = findPaneLeaf(updatedLayout, targetId);
@@ -796,9 +912,19 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   },
 
   openOrCreateDocumentByTitle: async (title: string, targetPaneId?: string) => {
+    const { canvases, getAllFiles } = get();
+    const allFiles = getAllFiles();
+
+    // 0. Verifica primeiro correspondência direta exata (ex: notas com "#" no nome, como "Sessão #1")
+    const fullNormalized = normalizeNoteTitle(title);
+    const directMatch = allFiles.find(f => normalizeNoteTitle(f.name) === fullNormalized || normalizeNoteTitle(f.path) === fullNormalized);
+    if (directMatch) {
+      await get().openDocument(directMatch.path, targetPaneId);
+      return;
+    }
+
     const [docTitle, sectionHeader] = title.split('#');
     const normalized = normalizeNoteTitle(docTitle);
-    const { canvases, getAllFiles } = get();
 
     // 1. Check if it matches a Canvas
     const matchingCanvas = canvases.find(c =>
@@ -821,8 +947,6 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       }
     }
 
-    const allFiles = getAllFiles();
-
     // 2. Check if note already exists
     const match = allFiles.find(f => normalizeNoteTitle(f.name) === normalized || normalizeNoteTitle(f.path) === normalized);
     if (match) {
@@ -842,19 +966,28 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     }
 
     // 3. Doesn't exist, create it!
-    const cleanTitle = docTitle.trim();
+    const cleanTitle = sanitizeVaultFileName(docTitle.trim(), false) || 'Nova nota';
     const newPath = await get().createFile('', cleanTitle);
     await get().openDocument(newPath, targetPaneId);
   },
 
+
   openCanvasTab: (canvasId: string, title?: string, targetPaneId?: string) => {
+    const currentActivePath = get().activePath;
+    if (currentActivePath && !currentActivePath.startsWith('canvas:') && !currentActivePath.startsWith('new-tab:')) {
+      const currentDoc = get().documentCache[currentActivePath];
+      if (currentDoc?.isDirty) {
+        get().saveDocumentContent(currentActivePath);
+      }
+    }
+
     const { layout, activePaneId } = get();
     const targetId = targetPaneId || activePaneId;
     const path = `canvas:${canvasId}`;
     const cleanTitle = title || 'Quadro de Conexões';
     const tab: VaultTab = { path, title: cleanTitle, type: 'canvas', canvasId };
 
-    const updatedLayout = insertTabInPane(layout, targetId, tab);
+    const updatedLayout = insertTabInPane(layout, targetId, tab, undefined, true);
     saveLayoutToStorage(updatedLayout, get().vaultId);
 
     const targetPane = findPaneLeaf(updatedLayout, targetId);
@@ -866,6 +999,39 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       tabs: targetPane?.tabs || [tab],
       isEditing: false,
     });
+  },
+
+  updateCanvasTitleInTabs: (canvasId: string, newTitle: string) => {
+    const { layout, activePaneId } = get();
+    const allPanes = getAllPanes(layout);
+    let updatedLayout = layout;
+    let changed = false;
+
+    for (const pane of allPanes) {
+      const hasCanvasTab = pane.tabs.some(t => t.canvasId === canvasId || t.path === `canvas:${canvasId}`);
+      if (hasCanvasTab) {
+        changed = true;
+        updatedLayout = updatePaneInTree(updatedLayout, pane.id, (p) => {
+          const nextTabs = p.tabs.map(t => {
+            if (t.canvasId === canvasId || t.path === `canvas:${canvasId}`) {
+              return { ...t, title: newTitle };
+            }
+            return t;
+          });
+          return { ...p, tabs: nextTabs };
+        });
+      }
+    }
+
+    if (changed) {
+      saveLayoutToStorage(updatedLayout, get().vaultId);
+      const activePane = findPaneLeaf(updatedLayout, activePaneId);
+      set(state => ({
+        layout: updatedLayout,
+        tabs: activePane?.tabs || state.tabs,
+        canvases: state.canvases.map(c => c.id === canvasId ? { ...c, name: newTitle } : c),
+      }));
+    }
   },
 
   closeTab: (path: string) => {
@@ -898,7 +1064,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   },
 
   loadDocumentContent: async (path: string) => {
-    if (!path || path.startsWith('canvas:')) return '';
+    if (!path || path.startsWith('canvas:') || path.startsWith('new-tab:')) return '';
     const { provider, documentCache } = get();
     if (documentCache[path]?.content !== undefined) {
       set({ activeContent: documentCache[path].content });
@@ -928,7 +1094,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   },
 
   updateDocumentContent: (path: string, content: string) => {
-    if (!path || path.startsWith('canvas:')) return;
+    if (!path || path.startsWith('canvas:') || path.startsWith('new-tab:')) return;
     set(state => {
       const currentDoc = state.documentCache[path];
       return {
@@ -952,7 +1118,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   },
 
   updateDocumentFrontmatter: (path: string, frontmatter: Record<string, unknown>) => {
-    if (!path || path.startsWith('canvas:')) return;
+    if (!path || path.startsWith('canvas:') || path.startsWith('new-tab:')) return;
     set(state => {
       const currentDoc = state.documentCache[path] || { content: '' };
       return {
@@ -975,9 +1141,9 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   },
 
   saveDocumentContent: async (path: string) => {
-    if (!path || path.startsWith('canvas:')) return;
-    const { provider, documentCache } = get();
-    if (!provider || !path) return;
+    if (!path || path.startsWith('canvas:') || path.startsWith('new-tab:')) return;
+    const { provider, documentCache, storageType, isConnected } = get();
+    if (!provider || !path || (storageType === 'fsa' && !isConnected)) return;
 
     const doc = documentCache[path];
     if (!doc) return;
@@ -989,16 +1155,41 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       }
       await provider.saveDocument(path, markdown);
 
-      set(state => ({
-        isSaving: false,
-        lastSavedAt: Date.now(),
-        documentCache: {
-          ...state.documentCache,
-          [path]: { ...doc, isDirty: false, lastSavedAt: Date.now() }
+      set(state => {
+        const currentDoc = state.documentCache[path];
+        if (!currentDoc) {
+          return { isSaving: false, lastSavedAt: Date.now() };
         }
-      }));
+        // Preserva o conteúdo atual (que pode ter novas letras digitadas durante o await)
+        const contentStillSame = currentDoc.content === doc.content;
+        return {
+          isSaving: false,
+          lastSavedAt: Date.now(),
+          documentCache: {
+            ...state.documentCache,
+            [path]: {
+              ...currentDoc,
+              isDirty: !contentStillSame,
+              lastSavedAt: Date.now(),
+            }
+          }
+        };
+      });
+
+      // Se o usuário continuou digitando enquanto a gravação assíncrona ocorria,
+      // agenda nova persistência para garantir integridade dos dados mais recentes
+      const latestDoc = get().documentCache[path];
+      if (latestDoc && latestDoc.content !== doc.content) {
+        if (docSaveTimeouts.has(path)) {
+          clearTimeout(docSaveTimeouts.get(path)!);
+        }
+        const timer = setTimeout(() => {
+          get().saveDocumentContent(path);
+        }, 450);
+        docSaveTimeouts.set(path, timer);
+      }
     } catch (err) {
-      console.error(`Falha ao salvar documento em ${path}:`, err);
+      console.warn(`Falha ao salvar documento em ${path}:`, err);
       set({ isSaving: false });
     }
   },
@@ -1072,10 +1263,25 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     }
     if (!provider) throw new Error('Storage não inicializado');
 
+    // Se for FSA e ainda não estiver conectado, tenta reconectar aproveitando o gesto do clique
+    if (get().storageType === 'fsa' && provider instanceof FSAStorageProvider) {
+      if (!provider.isConnected) {
+        await provider.reconnect();
+      }
+      if (provider.isConnected && !get().isConnected) {
+        set({ isConnected: true, vaultName: provider.vaultName });
+        await get().refreshNodes();
+      }
+      if (!provider.isConnected) {
+        throw new Error('Nenhuma pasta conectada.');
+      }
+    }
+
     let finalName = rawName?.trim() || '';
+    const cleanFolder = folderPath ? sanitizeVaultPath(folderPath, true) : '';
     if (!finalName) {
       const allFiles = get().getAllFiles();
-      const prefix = folderPath ? `${folderPath}/` : '';
+      const prefix = cleanFolder ? `${cleanFolder}/` : '';
       const existingPaths = new Set(allFiles.map(f => f.path.toLowerCase()));
 
       const defaultBase = 'Nova nota';
@@ -1091,8 +1297,10 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       }
     }
 
-    const fileName = finalName.endsWith('.md') ? finalName : `${finalName}.md`;
-    const fullPath = folderPath ? `${folderPath}/${fileName}` : fileName;
+    const baseName = finalName.replace(/\.(md|txt)$/i, '');
+    const cleanBaseName = sanitizeVaultFileName(baseName, false) || 'Nova nota';
+    const fileName = `${cleanBaseName}.md`;
+    const fullPath = cleanFolder ? `${cleanFolder}/${fileName}` : fileName;
 
     const contentToSave = (initialContent !== undefined)
       ? initialContent
@@ -1132,8 +1340,22 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     const { provider } = get();
     if (!provider) throw new Error('Storage não inicializado');
 
-    const fileName = file.name;
-    const fullPath = folderPath ? `${folderPath}/${fileName}` : fileName;
+    if (get().storageType === 'fsa' && provider instanceof FSAStorageProvider) {
+      if (!provider.isConnected) {
+        await provider.reconnect();
+      }
+      if (provider.isConnected && !get().isConnected) {
+        set({ isConnected: true, vaultName: provider.vaultName });
+        await get().refreshNodes();
+      }
+      if (!provider.isConnected) {
+        throw new Error('Nenhuma pasta conectada.');
+      }
+    }
+
+    const cleanFolder = folderPath ? sanitizeVaultPath(folderPath, true) : '';
+    const fileName = sanitizeVaultFileName(file.name, true);
+    const fullPath = cleanFolder ? `${cleanFolder}/${fileName}` : fileName;
 
     await provider.saveFile(fullPath, file);
     await get().refreshNodes();
@@ -1150,7 +1372,22 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     const { provider } = get();
     if (!provider) throw new Error('Storage não inicializado');
 
-    const fullPath = parentPath ? `${parentPath}/${folderName}` : folderName;
+    if (get().storageType === 'fsa' && provider instanceof FSAStorageProvider) {
+      if (!provider.isConnected) {
+        await provider.reconnect();
+      }
+      if (provider.isConnected && !get().isConnected) {
+        set({ isConnected: true, vaultName: provider.vaultName });
+        await get().refreshNodes();
+      }
+      if (!provider.isConnected) {
+        throw new Error('Nenhuma pasta conectada.');
+      }
+    }
+
+    const cleanParent = parentPath ? sanitizeVaultPath(parentPath, true) : '';
+    const cleanFolderName = sanitizeVaultFileName(folderName.trim() || 'Nova Pasta', false) || 'Nova Pasta';
+    const fullPath = cleanParent ? `${cleanParent}/${cleanFolderName}` : cleanFolderName;
     await provider.createFolder(fullPath);
 
     set(state => {
@@ -1163,10 +1400,19 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   },
 
   renameNode: async (oldPath: string, newPath: string, isFolder: boolean = false) => {
-    const { provider, layout, activePath, documentCache } = get();
-    if (!provider || oldPath === newPath) return;
+    let { provider, layout, activePath, documentCache } = get();
+    if (!provider) {
+      await get().initializeStorage();
+      provider = get().provider;
+    }
+    if (!provider) {
+      throw new Error('Storage não inicializado');
+    }
+    const cleanNewPath = sanitizeVaultPath(newPath, isFolder);
+    if (oldPath === cleanNewPath) return;
 
-    await provider.renameNode(oldPath, newPath, isFolder);
+    await provider.renameNode(oldPath, cleanNewPath, isFolder);
+    const actualNewPath = cleanNewPath;
 
     // Atualiza árvore de layout
     const allPanes = getAllPanes(layout);
@@ -1178,20 +1424,20 @@ export const useVaultStore = create<VaultState>((set, get) => ({
         updatedLayout = updatePaneInTree(updatedLayout, pane.id, (p) => {
           const nextTabs = p.tabs.map(t => {
             if (t.path === oldPath) {
-              const newTitle = newPath.split('/').pop()?.replace(/\.(md|txt)$/, '') || 'Sem título';
-              return { ...t, path: newPath, title: newTitle };
+              const newTitle = actualNewPath.split('/').pop()?.replace(/\.(md|txt)$/, '') || 'Sem título';
+              return { ...t, path: actualNewPath, title: newTitle };
             }
             if (isFolder && t.path.startsWith(`${oldPath}/`)) {
-              const updatedP = newPath + t.path.slice(oldPath.length);
+              const updatedP = actualNewPath + t.path.slice(oldPath.length);
               return { ...t, path: updatedP };
             }
             return t;
           });
           let nextActive = p.activePath;
           if (p.activePath === oldPath) {
-            nextActive = newPath;
+            nextActive = actualNewPath;
           } else if (isFolder && p.activePath?.startsWith(`${oldPath}/`)) {
-            nextActive = newPath + p.activePath.slice(oldPath.length);
+            nextActive = actualNewPath + p.activePath.slice(oldPath.length);
           }
           return { ...p, tabs: nextTabs, activePath: nextActive };
         });
@@ -1203,15 +1449,15 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     // Atualiza cache de documentos
     const nextDocCache = { ...documentCache };
     if (nextDocCache[oldPath]) {
-      nextDocCache[newPath] = nextDocCache[oldPath];
+      nextDocCache[actualNewPath] = nextDocCache[oldPath];
       delete nextDocCache[oldPath];
     }
 
     let nextActivePath = activePath;
     if (activePath === oldPath) {
-      nextActivePath = newPath;
+      nextActivePath = actualNewPath;
     } else if (isFolder && activePath?.startsWith(`${oldPath}/`)) {
-      nextActivePath = newPath + activePath.slice(oldPath.length);
+      nextActivePath = actualNewPath + activePath.slice(oldPath.length);
     }
 
     // Atualiza orderMap persistente
@@ -1223,21 +1469,21 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       let nextFolderKey = folderKey;
       if (isFolder) {
         if (folderKey === oldPath) {
-          nextFolderKey = newPath;
+          nextFolderKey = actualNewPath;
           orderChanged = true;
         } else if (folderKey.startsWith(`${oldPath}/`)) {
-          nextFolderKey = newPath + folderKey.slice(oldPath.length);
+          nextFolderKey = actualNewPath + folderKey.slice(oldPath.length);
           orderChanged = true;
         }
       }
       const nextList = list.map(itemPath => {
         if (itemPath === oldPath || itemPath === oldPath.replace(/\.(md|txt)$/, '')) {
           orderChanged = true;
-          return newPath;
+          return actualNewPath;
         }
         if (isFolder && itemPath.startsWith(`${oldPath}/`)) {
           orderChanged = true;
-          return newPath + itemPath.slice(oldPath.length);
+          return actualNewPath + itemPath.slice(oldPath.length);
         }
         return itemPath;
       });
@@ -1256,6 +1502,21 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     }));
 
     await get().refreshNodes();
+
+    if (typeof window !== 'undefined') {
+      try {
+        window.dispatchEvent(new CustomEvent('vault_node_renamed', {
+          detail: { oldPath, newPath: actualNewPath, isFolder }
+        }));
+      } catch {}
+      if (typeof BroadcastChannel !== 'undefined') {
+        try {
+          const channel = new BroadcastChannel('supercanvas_vault_sync');
+          channel.postMessage({ type: 'node_renamed', oldPath, newPath: actualNewPath, isFolder });
+          channel.close();
+        } catch {}
+      }
+    }
   },
 
   moveNode: async (sourcePath: string, targetFolderPath: string) => {
@@ -1510,6 +1771,12 @@ if (typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined') {
           useVaultStore.setState({ documentCache: cache });
         }
 
+      } else if (event.data?.type === 'node_renamed') {
+        if (typeof window !== 'undefined') {
+          try {
+            window.dispatchEvent(new CustomEvent('vault_node_renamed', { detail: event.data }));
+          } catch {}
+        }
         useVaultStore.getState().refreshNodes();
       } else if (event.data?.type === 'sync_doc_cache' && event.data.path) {
         const htmlContent = markdownToHtml(event.data.markdown || '');

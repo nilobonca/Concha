@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useState, useEffect } from 'react';
 import { useGesture } from '@use-gesture/react';
@@ -107,13 +107,16 @@ export default function DraggableItem({ id, x, y, zIndex, isSelected, children, 
         <div
             ref={itemRef}
             {...bind()}
+            onPointerDown={() => {
+                selectedAtMouseDown.current = isSelected;
+            }}
             onClick={(e) => {
                 if ((e.target as HTMLElement).closest('.prevent-item-drag')) {
                     return;
                 }
                 e.stopPropagation();
 
-                const isCtrlPressed = e.ctrlKey || e.metaKey;
+                const isCtrlPressed = e.ctrlKey || e.metaKey || e.shiftKey;
 
                 if (selectedAtMouseDown.current) {
                     if (isCtrlPressed) {
@@ -125,8 +128,9 @@ export default function DraggableItem({ id, x, y, zIndex, isSelected, children, 
                         }
                     }
                 } else {
-                    // It was NOT selected at mousedown, so it was already selected/added in onDragStart
-                    // Do nothing here to prevent double toggle!
+                    if (onSelect) {
+                        onSelect(e);
+                    }
                 }
             }}
             className={cn(

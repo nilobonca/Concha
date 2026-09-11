@@ -1,7 +1,8 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { useBoardCanvas } from '../hooks/useBoardCanvas';
 import { BoardElement, HandlePosition, BoardElementType } from '../types';
 import { useIDB } from '@/utils/indexedDB';
+import { Layer } from '@/interfaces/utils/indexedDB';
 import { useVaultStore } from '@/modules/vault/hooks/useVaultStore';
 import { BoardHeader } from './BoardHeader';
 import { BoardToolbar } from './BoardToolbar';
@@ -32,7 +33,7 @@ export const BoardView: React.FC<BoardViewProps> = ({
   isEmbeddedInVault,
   onCloseEmbedded,
 }) => {
-  const { activeLayers, updateLayer } = useIDB();
+  const { activeLayers, updateLayer, addLayer } = useIDB();
   const currentLayer = activeLayers.find(l => l.id === boardId);
   const folderPath = currentLayer?.folderPath;
 
@@ -41,6 +42,9 @@ export const BoardView: React.FC<BoardViewProps> = ({
     isLoading,
     selectedElementId,
     setSelectedElementId,
+    selectedElementIds,
+    handleSelectElement,
+    clearSelection,
     viewport,
     setViewport,
     updateBoardName,
@@ -61,7 +65,74 @@ export const BoardView: React.FC<BoardViewProps> = ({
     setCanvasModalOpen,
     editingElementId,
     setEditingElementId,
-  } = useBoardCanvas(boardId);
+  } = useBoardCanvas(boardId, currentLayer?.name);
+
+  // Sincronizar nome caso a camada seja alterada externamente (apenas após carregamento concluído)
+  useEffect(() => {
+    if (!isLoading && currentLayer?.name && currentLayer.name !== boardData.name) {
+      updateBoardName(currentLayer.name);
+    }
+  }, [isLoading, currentLayer?.name, boardData.name, updateBoardName]);
+
+  // Inicialização e conexão com o Vault correspondente ao quadro
+  useEffect(() => {
+    const initBoardVault = async () => {
+      const targetVaultId = currentLayer?.vaultId;
+      const vaultStore = useVaultStore.getState();
+
+      if (!vaultStore.provider) {
+        await vaultStore.initializeStorage();
+      }
+
+      if (targetVaultId && vaultStore.vaultId !== targetVaultId && vaultStore.storageType !== 'fsa') {
+        await vaultStore.connectIDB(targetVaultId, currentLayer?.vaultName || undefined);
+      }
+    };
+    initBoardVault();
+  }, [currentLayer?.vaultId, currentLayer?.vaultName]);
+
+  // Handler completo de renomeação disparado pelo BoardHeader
+  const handleUpdateBoardName = useCallback((newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+
+    // 1. Atualiza dados internos do quadro e salva no IndexedDB
+    updateBoardName(trimmed);
+
+    // 2. Atualiza a camada (Layer) no IndexedDB para sincronizar com a árvore de arquivos, baú e dashboard
+    if (currentLayer) {
+      if (currentLayer.name !== trimmed) {
+        updateLayer({ ...currentLayer, name: trimmed });
+      }
+    } else {
+      const newLayer: Layer = {
+        id: boardId,
+        type: 'group',
+        name: trimmed,
+        visible: true,
+        locked: false,
+        parentId: null,
+        depth: 0,
+        isProject: false,
+        isProjectMetadata: true,
+        projectId: boardId,
+        order: 0,
+        canvasType: 'board',
+        folderPath: null,
+      };
+      addLayer(newLayer);
+    }
+
+    // 3. Atualiza títulos das abas abertas no Vault Store e layout persistido
+    useVaultStore.getState().updateCanvasTitleInTabs(boardId, trimmed);
+
+    // 4. Dispara evento customizado para outros componentes ouvintes
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('canvas_renamed', {
+        detail: { canvasId: boardId, newName: trimmed }
+      }));
+    }
+  }, [boardId, currentLayer, updateBoardName, updateLayer, addLayer]);
 
   const { provider, getFileUrl } = useVaultStore();
   const [vaultSearchModalOpen, setVaultSearchModalOpen] = useState(false);
@@ -141,11 +212,13 @@ export const BoardView: React.FC<BoardViewProps> = ({
       console.warn('Could not read dropped note content from vault:', err);
     }
 
-    createNote(
+    const cleanedContent = cleanDuplicateTitle(cleanLegacyPlaceholder(noteContent || ''), note.name);
+
+    await createNote(
       worldPos,
       '#fef08a',
       note.name,
-      noteContent || '',
+      cleanedContent,
       note.path
     );
   };
@@ -204,7 +277,7 @@ export const BoardView: React.FC<BoardViewProps> = ({
       {/* Barra Superior */}
       <BoardHeader
         boardName={boardData.name}
-        onUpdateName={updateBoardName}
+        onUpdateName={handleUpdateBoardName}
         elementsCount={boardData.elements.length}
         connectionsCount={boardData.connections.length}
         isEmbeddedInVault={isEmbeddedInVault}
@@ -229,7 +302,7 @@ export const BoardView: React.FC<BoardViewProps> = ({
           setCanvasContextMenu({ x: screenPos.x, y: screenPos.y, worldPos });
         }}
         onCanvasClick={() => {
-          setSelectedElementId(null);
+          clearSelection();
           connectionsHook.setSelectedConnectionId(null);
           setCanvasContextMenu(null);
         }}
@@ -246,7 +319,7 @@ export const BoardView: React.FC<BoardViewProps> = ({
 
         {/* Camada de Elementos do Board */}
         {boardData.elements.map((element) => {
-          const isSelected = selectedElementId === element.id;
+          const isSelected = selectedElementIds.has(element.id);
           const snappedHandle =
             connectionsHook.activeDrag?.snappedTarget?.elementId === element.id
               ? connectionsHook.activeDrag.snappedTarget.handle
@@ -259,8 +332,8 @@ export const BoardView: React.FC<BoardViewProps> = ({
             snappedHandle,
             zoom: viewport.k,
             canvasTheme,
-            onSelect: () => {
-              setSelectedElementId(element.id);
+            onSelect: (e?: React.MouseEvent | React.PointerEvent) => {
+              handleSelectElement(element.id, e);
               connectionsHook.setSelectedConnectionId(null);
             },
             onUpdate: (updates: Partial<BoardElement>) => updateElement(element.id, updates),

@@ -1,5 +1,6 @@
 import { IVaultStorageProvider } from './VaultStorageAdapter';
 import { VaultNode, VaultDocument } from '../interfaces/vault';
+import { sanitizeVaultPath, sanitizeVaultFileName } from '../utils/fileNameUtils';
 
 // IndexedDB database name used by RPGSA
 const DB_NAME = 'RPGSA_DB';
@@ -9,13 +10,33 @@ const HANDLE_KEY = 'fsa_vault_directory_handle';
 export class FSAStorageProvider implements IVaultStorageProvider {
   readonly type = 'fsa' as const;
   private rootHandle: FileSystemDirectoryHandle | null = null;
+  private savedHandle: FileSystemDirectoryHandle | null = null;
   private _vaultId: string;
   private _vaultName: string = 'Local Windows Vault';
   private rootPhysicalPath: string | null = null;
 
+  // Cache estático de handles por vaultId para disponibilidade síncrona imediata sem macrotasks de IDB
+  private static handleCache = new Map<string, FileSystemDirectoryHandle>();
+
+  // Nomes de pastas e arquivos de sistema a serem ignorados no escaneamento recursivo
+  private static IGNORED_NAMES = new Set([
+    'node_modules',
+    '$recycle.bin',
+    'system volume information',
+    'recovery',
+    'dist',
+    'build',
+    '.next',
+    'out',
+    'desktop.ini',
+    'thumbs.db',
+    'ehthumbs.db',
+  ]);
+
   constructor(vaultId: string = 'fsa-main', vaultName: string = 'Local Windows Vault') {
     this._vaultId = vaultId;
     this._vaultName = vaultName;
+    this.savedHandle = FSAStorageProvider.handleCache.get(vaultId) || FSAStorageProvider.handleCache.get('fsa-main') || null;
   }
 
   get vaultId(): string {
@@ -30,6 +51,10 @@ export class FSAStorageProvider implements IVaultStorageProvider {
     return this.rootHandle !== null;
   }
 
+  get hasSavedHandle(): boolean {
+    return this.savedHandle !== null || FSAStorageProvider.handleCache.has(this._vaultId) || FSAStorageProvider.handleCache.has('fsa-main');
+  }
+
   get vaultName(): string {
     return this.rootHandle?.name || this._vaultName;
   }
@@ -38,8 +63,123 @@ export class FSAStorageProvider implements IVaultStorageProvider {
     return this.rootHandle;
   }
 
+  static getCachedHandle(vaultId: string): FileSystemDirectoryHandle | null {
+    return FSAStorageProvider.handleCache.get(vaultId) || FSAStorageProvider.handleCache.get('fsa-main') || null;
+  }
+
+  public onHandleRestored?: () => void;
+
   /**
-   * Initializes the provider by trying to restore a previously saved handle from IndexedDB
+   * Reconnects to the physical directory handle.
+   * Utilizes the active user gesture to request readwrite permissions without delay.
+   * If permission is granted on the cached or stored handle, restores the connection immediately.
+   * If no valid handle exists, falls back immediately to the native directory picker
+   * without any intermediate asynchronous IDB lookups that would expire the user gesture.
+   */
+  async reconnect(): Promise<boolean> {
+    if (typeof window === 'undefined') return false;
+
+    // 1. Obtém o handle em cache de memória ou restaura do IndexedDB
+    let handle = this.savedHandle || FSAStorageProvider.handleCache.get(this._vaultId) || FSAStorageProvider.handleCache.get('fsa-main') || null;
+    if (!handle) {
+      handle = await this.getSavedHandleFromIDB(this._vaultId);
+      if (handle) {
+        this.savedHandle = handle;
+        FSAStorageProvider.handleCache.set(this._vaultId, handle);
+        FSAStorageProvider.handleCache.set('fsa-main', handle);
+      }
+    }
+
+    // 2. Se houver handle, solicita permissão imediatamente aproveitando o gesto do usuário
+    if (handle) {
+      try {
+        const queryStatus = await (handle as any).queryPermission?.({ mode: 'readwrite' });
+        if (queryStatus === 'granted') {
+          this.rootHandle = handle;
+          this.savedHandle = handle;
+          this._vaultName = handle.name;
+          FSAStorageProvider.handleCache.set(this._vaultId, handle);
+          this.onHandleRestored?.();
+          return true;
+        }
+
+        const requestStatus = await (handle as any).requestPermission?.({ mode: 'readwrite' });
+        if (requestStatus === 'granted') {
+          this.rootHandle = handle;
+          this.savedHandle = handle;
+          this._vaultName = handle.name;
+          FSAStorageProvider.handleCache.set(this._vaultId, handle);
+          this.onHandleRestored?.();
+          return true;
+        }
+
+        // Fallback: se gravação não foi concedida mas leitura está disponível
+        const readQuery = await (handle as any).queryPermission?.({ mode: 'read' });
+        if (readQuery === 'granted') {
+          this.rootHandle = handle;
+          this.savedHandle = handle;
+          this._vaultName = handle.name;
+          FSAStorageProvider.handleCache.set(this._vaultId, handle);
+          this.onHandleRestored?.();
+          return true;
+        }
+      } catch (err) {
+        console.warn('[FSAStorageProvider] Falha ao solicitar permissão no handle salvo:', err);
+      }
+
+      // IMPORTANTE: requestPermission consumiu a ativação do usuário (user gesture).
+      // Se não foi concedida ou o handle é inválido, encerra aqui sem disparar showDirectoryPicker.
+      return false;
+    }
+
+    // 3. Se NÃO havia handle salvo em cache ou IDB, o gesto do usuário está 100% preservado.
+    // Dispara pickDirectory() imediatamente, mantendo o token de ativação intacto.
+    return this.pickDirectory(this._vaultId);
+  }
+
+  /**
+   * Garante que o handle raiz esteja conectado.
+   * Não dispara chamadas interativas ao seletor de arquivos (pickDirectory) para evitar
+   * erros de 'User activation required' em operações em segundo plano (como auto-save).
+   */
+  async ensureHandle(): Promise<FileSystemDirectoryHandle> {
+    if (this.rootHandle) {
+      return this.rootHandle;
+    }
+
+    if (typeof window === 'undefined') {
+      throw new Error('Ambiente sem suporte a File System Access.');
+    }
+
+    // Tenta restauração silenciosa caso o navegador já tenha a permissão concedida
+    let handle = this.savedHandle || FSAStorageProvider.handleCache.get(this._vaultId) || FSAStorageProvider.handleCache.get('fsa-main') || null;
+    if (!handle) {
+      handle = await this.getSavedHandleFromIDB(this._vaultId);
+      if (handle) {
+        this.savedHandle = handle;
+        FSAStorageProvider.handleCache.set(this._vaultId, handle);
+      }
+    }
+
+    if (handle) {
+      try {
+        const queryStatus = await (handle as any).queryPermission?.({ mode: 'readwrite' });
+        if (queryStatus === 'granted') {
+          this.rootHandle = handle;
+          this.savedHandle = handle;
+          this._vaultName = handle.name;
+          this.onHandleRestored?.();
+          return this.rootHandle;
+        }
+      } catch {}
+    }
+
+    throw new Error('Nenhuma pasta conectada.');
+  }
+
+  /**
+   * Initializes the provider by trying to restore a previously saved handle from IndexedDB.
+   * Note: Does NOT call requestPermission because init runs without a user gesture on page load.
    */
   async init(): Promise<boolean> {
     if (typeof window === 'undefined' || !('showDirectoryPicker' in window)) {
@@ -49,12 +189,27 @@ export class FSAStorageProvider implements IVaultStorageProvider {
     try {
       const savedHandle = await this.getSavedHandleFromIDB(this._vaultId);
       if (savedHandle) {
-        // Verify permissions
-        const permission = await this.verifyPermission(savedHandle, true);
-        if (permission) {
-          this.rootHandle = savedHandle;
-          this._vaultName = savedHandle.name;
-          return true;
+        this.savedHandle = savedHandle;
+        FSAStorageProvider.handleCache.set(this._vaultId, savedHandle);
+        FSAStorageProvider.handleCache.set('fsa-main', savedHandle);
+        try {
+          // Query permission non-intrusively (no user gesture required for query)
+          const permission = await (savedHandle as any).queryPermission?.({ mode: 'readwrite' });
+          if (permission === 'granted') {
+            this.rootHandle = savedHandle;
+            this._vaultName = savedHandle.name;
+            return true;
+          }
+
+          // Fallback não-intrusivo: se permissão de leitura já estiver liberada, conecta para visualização imediata
+          const readPerm = await (savedHandle as any).queryPermission?.({ mode: 'read' });
+          if (readPerm === 'granted') {
+            this.rootHandle = savedHandle;
+            this._vaultName = savedHandle.name;
+            return true;
+          }
+        } catch {
+          // Keep savedHandle cached so reconnect() can prompt permission upon user interaction
         }
       }
     } catch (err) {
@@ -121,14 +276,19 @@ export class FSAStorageProvider implements IVaultStorageProvider {
 
       if (!handle) return false;
 
-      const hasPermission = await this.verifyPermission(handle, true);
-      if (!hasPermission) return false;
-
       this.rootHandle = handle;
+      this.savedHandle = handle;
       this._vaultName = handle.name;
+      FSAStorageProvider.handleCache.set(this._vaultId, handle);
+      FSAStorageProvider.handleCache.set('fsa-main', handle);
 
       // Persist handle to IndexedDB for automatic reconnection
-      await this.saveHandleToIDB(handle, this._vaultId);
+      try {
+        await this.saveHandleToIDB(handle, this._vaultId);
+      } catch (saveErr) {
+        console.warn('[FSAStorageProvider] Falha ao persistir handle no IDB:', saveErr);
+      }
+      this.onHandleRestored?.();
 
       return true;
     } catch (err: unknown) {
@@ -136,7 +296,11 @@ export class FSAStorageProvider implements IVaultStorageProvider {
       if (errorObj?.name === 'AbortError') {
         return false; // User cancelled
       }
-      console.error('[FSAStorageProvider] Error picking directory:', err);
+      if (errorObj?.name === 'NotAllowedError' || errorObj?.name === 'SecurityError') {
+        console.warn('[FSAStorageProvider] Seletor de pastas cancelado ou ativação de usuário ausente:', err);
+        return false;
+      }
+      console.warn('[FSAStorageProvider] Error picking directory:', err);
       return false;
     }
   }
@@ -146,7 +310,10 @@ export class FSAStorageProvider implements IVaultStorageProvider {
    */
   async disconnect(): Promise<void> {
     this.rootHandle = null;
+    this.savedHandle = null;
     this.rootPhysicalPath = null;
+    FSAStorageProvider.handleCache.delete(this._vaultId);
+    FSAStorageProvider.handleCache.delete('fsa-main');
     if (typeof window !== 'undefined') {
       localStorage.removeItem('vault_root_physical_path');
     }
@@ -159,58 +326,98 @@ export class FSAStorageProvider implements IVaultStorageProvider {
   async listNodes(subPath: string = ''): Promise<VaultNode[]> {
     if (!this.rootHandle) return [];
 
-    const dirHandle = subPath ? await this.resolveDirectory(subPath) : this.rootHandle;
-    if (!dirHandle) return [];
+    try {
+      const dirHandle = subPath ? await this.resolveDirectory(subPath) : this.rootHandle;
+      if (!dirHandle) return [];
 
-    return this.scanDirectory(dirHandle, subPath);
+      return await this.scanDirectory(dirHandle, subPath);
+    } catch (err) {
+      console.warn(`[FSAStorageProvider] Erro ao listar nós (${subPath || 'raiz'}):`, err);
+      return [];
+    }
   }
 
-  private async scanDirectory(dirHandle: FileSystemDirectoryHandle, basePath: string): Promise<VaultNode[]> {
+  private async scanDirectory(
+    dirHandle: FileSystemDirectoryHandle,
+    basePath: string,
+    depth: number = 0
+  ): Promise<VaultNode[]> {
+    if (depth > 12) {
+      return [];
+    }
+
     const nodes: VaultNode[] = [];
 
-    // Iterate over directory entries
-    for await (const [name, handle] of (dirHandle as any).entries()) {
-      // Ignore hidden files / folders (e.g. .git, .obsidian, .trash)
-      if (name.startsWith('.')) continue;
+    try {
+      // Iterate over directory entries
+      for await (const [name, handle] of (dirHandle as any).entries()) {
+        // Ignore hidden files / folders (e.g. .git, .obsidian, .trash) or system/node_modules
+        if (!name || name.startsWith('.')) continue;
+        if (FSAStorageProvider.IGNORED_NAMES.has(name.toLowerCase())) continue;
 
-      const currentPath = basePath ? `${basePath}/${name}` : name;
+        const currentPath = basePath ? `${basePath}/${name}` : name;
 
-      if (handle.kind === 'directory') {
-        const children = await this.scanDirectory(handle as FileSystemDirectoryHandle, currentPath);
-        nodes.push({
-          id: currentPath,
-          name,
-          path: currentPath,
-          type: 'folder',
-          children
-        });
-      } else if (handle.kind === 'file') {
-        const ext = name.split('.').pop()?.toLowerCase() || '';
-        const isMarkdown = ['md', 'markdown'].includes(ext);
-        const isText = ext === 'txt';
-        const isAudio = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'webm', 'opus'].includes(ext);
-        const isImage = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'bmp', 'avif', 'ico'].includes(ext);
+        if (handle.kind === 'directory') {
+          try {
+            const children = await this.scanDirectory(
+              handle as FileSystemDirectoryHandle,
+              currentPath,
+              depth + 1
+            );
+            nodes.push({
+              id: currentPath,
+              name,
+              path: currentPath,
+              type: 'folder',
+              children
+            });
+          } catch (dirErr) {
+            console.warn(`[FSAStorageProvider] Ignorando subpasta inacessível '${name}':`, dirErr);
+          }
+        } else if (handle.kind === 'file') {
+          try {
+            const ext = name.split('.').pop()?.toLowerCase() || '';
+            const isMarkdown = ['md', 'markdown'].includes(ext);
+            const isText = ext === 'txt';
+            const isAudio = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'webm', 'opus'].includes(ext);
+            const isImage = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'bmp', 'avif', 'ico'].includes(ext);
 
-        const file = await (handle as FileSystemFileHandle).getFile();
-        const fileType: 'note' | 'audio' | 'image' | 'file' = isAudio
-          ? 'audio'
-          : isImage
-          ? 'image'
-          : isMarkdown || isText
-          ? 'note'
-          : 'file';
+            let fileSize = 0;
+            let fileLastModified = Date.now();
 
-        nodes.push({
-          id: currentPath,
-          name: isMarkdown || isText ? name.replace(/\.(md|markdown|txt)$/i, '') : name,
-          path: currentPath,
-          type: 'file',
-          fileType,
-          extension: ext,
-          size: file.size,
-          updatedAt: file.lastModified
-        });
+            try {
+              const file = await (handle as FileSystemFileHandle).getFile();
+              fileSize = file.size;
+              fileLastModified = file.lastModified;
+            } catch (fileErr) {
+              console.warn(`[FSAStorageProvider] Aviso ao ler arquivo '${name}':`, fileErr);
+            }
+
+            const fileType: 'note' | 'audio' | 'image' | 'file' = isAudio
+              ? 'audio'
+              : isImage
+              ? 'image'
+              : isMarkdown || isText
+              ? 'note'
+              : 'file';
+
+            nodes.push({
+              id: currentPath,
+              name: isMarkdown || isText ? name.replace(/\.(md|markdown|txt)$/i, '') : name,
+              path: currentPath,
+              type: 'file',
+              fileType,
+              extension: ext,
+              size: fileSize,
+              updatedAt: fileLastModified
+            });
+          } catch (itemErr) {
+            console.warn(`[FSAStorageProvider] Erro ao processar entrada '${name}':`, itemErr);
+          }
+        }
       }
+    } catch (scanErr) {
+      console.warn(`[FSAStorageProvider] Erro ao iterar entradas em '${basePath || "raiz"}':`, scanErr);
     }
 
     // Sort folders first, then files alphabetically
@@ -242,10 +449,11 @@ export class FSAStorageProvider implements IVaultStorageProvider {
    * Writes content to a Markdown file
    */
   async saveDocument(filePath: string, content: string): Promise<void> {
-    if (!this.rootHandle) throw new Error('Nenhuma pasta conectada.');
+    await this.ensureHandle();
 
-    const fileHandle = await this.resolveFile(filePath, true);
-    if (!fileHandle) throw new Error(`Não foi possível acessar o arquivo: ${filePath}`);
+    const cleanPath = sanitizeVaultPath(filePath, false);
+    const fileHandle = await this.resolveFile(cleanPath, true);
+    if (!fileHandle) throw new Error(`Não foi possível acessar o arquivo: ${cleanPath || filePath}`);
 
     const writable = await (fileHandle as any).createWritable();
     await writable.write(content);
@@ -256,10 +464,11 @@ export class FSAStorageProvider implements IVaultStorageProvider {
    * Creates a new document
    */
   async createDocument(filePath: string, initialContent: string = ''): Promise<VaultDocument> {
-    if (!this.rootHandle) throw new Error('Nenhuma pasta conectada.');
+    await this.ensureHandle();
 
+    const cleanPath = sanitizeVaultPath(filePath, false);
     // Ensure extension
-    const normalizedPath = filePath.endsWith('.md') ? filePath : `${filePath}.md`;
+    const normalizedPath = cleanPath.endsWith('.md') ? cleanPath : `${cleanPath}.md`;
     await this.saveDocument(normalizedPath, initialContent);
 
     const parts = normalizedPath.split('/');
@@ -284,8 +493,9 @@ export class FSAStorageProvider implements IVaultStorageProvider {
    * Creates a folder
    */
   async createFolder(folderPath: string): Promise<void> {
-    if (!this.rootHandle) throw new Error('Nenhuma pasta conectada.');
-    await this.resolveDirectory(folderPath, true);
+    await this.ensureHandle();
+    const cleanPath = sanitizeVaultPath(folderPath, true);
+    await this.resolveDirectory(cleanPath, true);
   }
 
   private urlCache = new Map<string, string>();
@@ -294,26 +504,28 @@ export class FSAStorageProvider implements IVaultStorageProvider {
    * Saves a binary file (audio, image, etc.)
    */
   async saveFile(filePath: string, file: File | Blob): Promise<void> {
-    if (!this.rootHandle) throw new Error('Nenhuma pasta conectada.');
+    await this.ensureHandle();
 
-    const fileHandle = await this.resolveFile(filePath, true);
-    if (!fileHandle) throw new Error(`Não foi possível acessar o arquivo: ${filePath}`);
+    const cleanPath = sanitizeVaultPath(filePath, false);
+    const fileHandle = await this.resolveFile(cleanPath, true);
+    if (!fileHandle) throw new Error(`Não foi possível acessar o arquivo: ${cleanPath || filePath}`);
 
     const writable = await (fileHandle as any).createWritable();
     await writable.write(file);
     await writable.close();
 
-    if (this.urlCache.has(filePath)) {
-      URL.revokeObjectURL(this.urlCache.get(filePath)!);
-      this.urlCache.delete(filePath);
+    if (this.urlCache.has(cleanPath)) {
+      URL.revokeObjectURL(this.urlCache.get(cleanPath)!);
+      this.urlCache.delete(cleanPath);
     }
   }
+
 
   /**
    * Gets a binary file Blob
    */
   async getFileBlob(filePath: string): Promise<Blob> {
-    if (!this.rootHandle) throw new Error('Nenhuma pasta conectada.');
+    await this.ensureHandle();
 
     const fileHandle = await this.resolveFile(filePath, false);
     if (!fileHandle) throw new Error(`Arquivo não encontrado: ${filePath}`);
@@ -414,7 +626,7 @@ export class FSAStorageProvider implements IVaultStorageProvider {
    * Deletes a file or directory, moving to the Windows Recycle Bin if in Electron
    */
   async deleteNode(nodePath: string, isFolder: boolean): Promise<void> {
-    if (!this.rootHandle) throw new Error('Nenhuma pasta conectada.');
+    await this.ensureHandle();
 
     let movedToTrash = false;
 
@@ -467,20 +679,29 @@ export class FSAStorageProvider implements IVaultStorageProvider {
    * Renames a file or directory
    */
   async renameNode(oldPath: string, newPath: string, isFolder: boolean = false): Promise<void> {
-    if (!this.rootHandle) throw new Error('Nenhuma pasta conectada.');
+    await this.ensureHandle();
+
+    const normOld = oldPath.replace(/\\/g, '/').replace(/^\/+/, '');
+    const normNew = sanitizeVaultPath(newPath, isFolder);
 
     if (!isFolder) {
-      const fileHandle = await this.resolveFile(oldPath, false);
-      if (!fileHandle) throw new Error(`Arquivo de origem não encontrado: ${oldPath}`);
+      const fileHandle = await this.resolveFile(normOld, false);
+      if (!fileHandle) {
+        if (/\.(md|txt)$/i.test(normNew) || /\.(md|txt)$/i.test(normOld)) {
+          await this.saveDocument(normNew, '');
+          return;
+        }
+        throw new Error(`Arquivo de origem não encontrado: ${oldPath}`);
+      }
       const file = await fileHandle.getFile();
-      await this.saveFile(newPath, file);
-      await this.deleteNode(oldPath, false);
+      await this.saveFile(normNew, file);
+      await this.deleteNode(normOld, false);
     } else {
-      const sourceHandle = await this.resolveDirectory(oldPath);
+      const sourceHandle = await this.resolveDirectory(normOld);
       if (!sourceHandle) throw new Error(`Pasta de origem não encontrada: ${oldPath}`);
-      await this.resolveDirectory(newPath, true);
-      await this.copyDirectoryRecursive(sourceHandle, newPath);
-      await this.deleteNode(oldPath, true);
+      await this.resolveDirectory(normNew, true);
+      await this.copyDirectoryRecursive(sourceHandle, normNew);
+      await this.deleteNode(normOld, true);
     }
   }
 
@@ -502,13 +723,25 @@ export class FSAStorageProvider implements IVaultStorageProvider {
 
   private async resolveDirectory(path: string, create: boolean = false): Promise<FileSystemDirectoryHandle | null> {
     if (!this.rootHandle) return null;
-    const parts = path.split('/').filter(Boolean);
+    let clean = path.trim().replace(/\\/g, '/');
+    if (/%[0-9a-fA-F]{2}/.test(clean)) {
+      try { clean = decodeURIComponent(clean); } catch {}
+    }
+    clean = clean.normalize('NFC');
+    const parts = clean.split('/').filter(Boolean);
 
     let current = this.rootHandle;
     for (const part of parts) {
+      const partName = create ? sanitizeVaultFileName(part, true) : part;
       try {
-        current = await current.getDirectoryHandle(part, { create });
+        current = await current.getDirectoryHandle(partName, { create });
       } catch {
+        if (!create) {
+          try {
+            current = await current.getDirectoryHandle(partName.normalize('NFD'), { create: false });
+            continue;
+          } catch {}
+        }
         return null;
       }
     }
@@ -517,7 +750,12 @@ export class FSAStorageProvider implements IVaultStorageProvider {
 
   private async resolveFile(path: string, create: boolean = false): Promise<FileSystemFileHandle | null> {
     if (!this.rootHandle) return null;
-    const parts = path.split('/').filter(Boolean);
+    let clean = path.trim().replace(/\\/g, '/');
+    if (/%[0-9a-fA-F]{2}/.test(clean)) {
+      try { clean = decodeURIComponent(clean); } catch {}
+    }
+    clean = clean.normalize('NFC');
+    const parts = clean.split('/').filter(Boolean);
     const fileName = parts.pop();
     if (!fileName) return null;
 
@@ -525,22 +763,34 @@ export class FSAStorageProvider implements IVaultStorageProvider {
     const dirHandle = dirPath ? await this.resolveDirectory(dirPath, create) : this.rootHandle;
     if (!dirHandle) return null;
 
+    const targetFileName = create ? sanitizeVaultFileName(fileName, false) : fileName;
+
     try {
-      return await dirHandle.getFileHandle(fileName, { create });
+      return await dirHandle.getFileHandle(targetFileName, { create });
     } catch {
+      if (!create) {
+        try {
+          return await dirHandle.getFileHandle(targetFileName.normalize('NFD'), { create: false });
+        } catch {}
+      }
       return null;
     }
   }
+
 
   private async verifyPermission(fileHandle: FileSystemHandle, readWrite: boolean): Promise<boolean> {
     const options: any = {};
     if (readWrite) options.mode = 'readwrite';
 
-    if ((await (fileHandle as any).queryPermission(options)) === 'granted') {
-      return true;
-    }
-    if ((await (fileHandle as any).requestPermission(options)) === 'granted') {
-      return true;
+    try {
+      if ((await (fileHandle as any).queryPermission(options)) === 'granted') {
+        return true;
+      }
+      if ((await (fileHandle as any).requestPermission(options)) === 'granted') {
+        return true;
+      }
+    } catch {
+      return false;
     }
     return false;
   }
@@ -560,60 +810,115 @@ export class FSAStorageProvider implements IVaultStorageProvider {
    */
   static async getSavedHandleFromIDB(vaultId: string): Promise<FileSystemDirectoryHandle | null> {
     return new Promise((resolve) => {
-      const request = indexedDB.open(DB_NAME);
-      request.onsuccess = () => {
-        const db = request.result;
-        if (!db.objectStoreNames.contains(KEYVAL_STORE)) {
-          resolve(null);
-          return;
-        }
-        const tx = db.transaction(KEYVAL_STORE, 'readonly');
-        const store = tx.objectStore(KEYVAL_STORE);
-
-        // Try per-vault handle key first
-        const specificReq = store.get(`fsa_vault_directory_handle_${vaultId}`);
-        specificReq.onsuccess = () => {
-          if (specificReq.result) {
-            resolve(specificReq.result);
-          } else if (vaultId === 'fsa-main') {
-            // Backward compatibility fallback for the legacy fsa-main handle
-            const legacyReq = store.get(HANDLE_KEY);
-            legacyReq.onsuccess = () => resolve(legacyReq.result || null);
-            legacyReq.onerror = () => resolve(null);
-          } else {
-            resolve(null);
+      if (typeof window === 'undefined' || !window.indexedDB) {
+        resolve(null);
+        return;
+      }
+      try {
+        const request = indexedDB.open(DB_NAME, 12);
+        request.onupgradeneeded = () => {
+          const db = request.result;
+          if (!db.objectStoreNames.contains(KEYVAL_STORE)) {
+            db.createObjectStore(KEYVAL_STORE);
           }
         };
-        specificReq.onerror = () => resolve(null);
-      };
-      request.onerror = () => resolve(null);
+        request.onsuccess = () => {
+          const db = request.result;
+          if (!db.objectStoreNames.contains(KEYVAL_STORE)) {
+            resolve(null);
+            return;
+          }
+          const tx = db.transaction(KEYVAL_STORE, 'readonly');
+          const store = tx.objectStore(KEYVAL_STORE);
+
+          // 1. Try per-vault handle key first
+          const specificReq = store.get(`fsa_vault_directory_handle_${vaultId}`);
+          specificReq.onsuccess = () => {
+            if (specificReq.result) {
+              resolve(specificReq.result);
+              return;
+            }
+
+            // 2. Try global legacy handle key
+            const legacyReq = store.get(HANDLE_KEY);
+            legacyReq.onsuccess = () => {
+              if (legacyReq.result) {
+                resolve(legacyReq.result);
+                return;
+              }
+
+              // 3. Try legacy fsa-main key
+              const fsaMainReq = store.get('fsa_vault_directory_handle_fsa-main');
+              fsaMainReq.onsuccess = () => {
+                if (fsaMainReq.result) {
+                  resolve(fsaMainReq.result);
+                  return;
+                }
+
+                // 4. Scan all keys to find any handle starting with 'fsa_vault_directory_handle'
+                if ('getAllKeys' in store) {
+                  const allKeysReq = store.getAllKeys();
+                  allKeysReq.onsuccess = () => {
+                    const keys = allKeysReq.result as string[];
+                    const fsaKey = keys.find(k => typeof k === 'string' && k.startsWith('fsa_vault_directory_handle'));
+                    if (fsaKey) {
+                      const fallbackReq = store.get(fsaKey);
+                      fallbackReq.onsuccess = () => resolve(fallbackReq.result || null);
+                      fallbackReq.onerror = () => resolve(null);
+                    } else {
+                      resolve(null);
+                    }
+                  };
+                  allKeysReq.onerror = () => resolve(null);
+                } else {
+                  resolve(null);
+                }
+              };
+              fsaMainReq.onerror = () => resolve(null);
+            };
+            legacyReq.onerror = () => resolve(null);
+          };
+          specificReq.onerror = () => resolve(null);
+        };
+        request.onerror = () => resolve(null);
+      } catch {
+        resolve(null);
+      }
     });
   }
 
   private async saveHandleToIDB(handle: FileSystemDirectoryHandle, vaultId: string = this._vaultId): Promise<void> {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open(DB_NAME);
-      request.onsuccess = () => {
-        const db = request.result;
-        if (!db.objectStoreNames.contains(KEYVAL_STORE)) {
-          resolve();
-          return;
-        }
-        const tx = db.transaction(KEYVAL_STORE, 'readwrite');
-        const store = tx.objectStore(KEYVAL_STORE);
+      try {
+        const request = indexedDB.open(DB_NAME, 12);
+        request.onupgradeneeded = () => {
+          const db = request.result;
+          if (!db.objectStoreNames.contains(KEYVAL_STORE)) {
+            db.createObjectStore(KEYVAL_STORE);
+          }
+        };
+        request.onsuccess = () => {
+          const db = request.result;
+          if (!db.objectStoreNames.contains(KEYVAL_STORE)) {
+            resolve();
+            return;
+          }
+          const tx = db.transaction(KEYVAL_STORE, 'readwrite');
+          const store = tx.objectStore(KEYVAL_STORE);
 
-        // Save under per-vault key
-        store.put(handle, this.getHandleKey(vaultId));
+          // Save under per-vault key
+          store.put(handle, this.getHandleKey(vaultId));
 
-        // If this is fsa-main, also write to legacy key for compatibility
-        if (vaultId === 'fsa-main') {
+          // Always write to legacy HANDLE_KEY as universal fallback
           store.put(handle, HANDLE_KEY);
-        }
 
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      };
-      request.onerror = () => reject(request.error);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        };
+        request.onerror = () => reject(request.error);
+      } catch (err) {
+        reject(err);
+      }
     });
   }
 
@@ -626,25 +931,35 @@ export class FSAStorageProvider implements IVaultStorageProvider {
    */
   static async removeSavedHandleFromIDB(vaultId: string): Promise<void> {
     return new Promise((resolve) => {
-      const request = indexedDB.open(DB_NAME);
-      request.onsuccess = () => {
-        const db = request.result;
-        if (!db.objectStoreNames.contains(KEYVAL_STORE)) {
-          resolve();
-          return;
-        }
-        const tx = db.transaction(KEYVAL_STORE, 'readwrite');
-        const store = tx.objectStore(KEYVAL_STORE);
+      try {
+        const request = indexedDB.open(DB_NAME, 12);
+        request.onupgradeneeded = () => {
+          const db = request.result;
+          if (!db.objectStoreNames.contains(KEYVAL_STORE)) {
+            db.createObjectStore(KEYVAL_STORE);
+          }
+        };
+        request.onsuccess = () => {
+          const db = request.result;
+          if (!db.objectStoreNames.contains(KEYVAL_STORE)) {
+            resolve();
+            return;
+          }
+          const tx = db.transaction(KEYVAL_STORE, 'readwrite');
+          const store = tx.objectStore(KEYVAL_STORE);
 
-        store.delete(`fsa_vault_directory_handle_${vaultId}`);
-        if (vaultId === 'fsa-main') {
-          store.delete(HANDLE_KEY);
-        }
+          store.delete(`fsa_vault_directory_handle_${vaultId}`);
+          if (vaultId === 'fsa-main') {
+            store.delete(HANDLE_KEY);
+          }
 
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => resolve();
-      };
-      request.onerror = () => resolve();
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => resolve();
+        };
+        request.onerror = () => resolve();
+      } catch {
+        resolve();
+      }
     });
   }
 

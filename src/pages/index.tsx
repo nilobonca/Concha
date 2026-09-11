@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { useIDB } from '@/utils/indexedDB';
 import { Layer } from '@/interfaces/utils/indexedDB';
+import { updateBoardNameInIDB } from '@/modules/board/hooks/useBoardStorage';
 import { useThemeStore } from '@/store/themeStore';
 import { useVaultStore } from '@/modules/vault/hooks/useVaultStore';
 import { useVaultRegistry, RegisteredVault } from '@/modules/vault/hooks/useVaultRegistry';
@@ -45,6 +46,7 @@ export default function Dashboard() {
     renameVault,
     connectFSA,
     connectIDB,
+    isConnected,
   } = useVaultRegistry();
 
   // Active Dashboard Tab (Default: 'active-vault')
@@ -233,6 +235,20 @@ export default function Dashboard() {
     }
   };
 
+  // Canvas Update / Rename flow
+  const handleUpdateCanvas = useCallback(async (canvas: Layer) => {
+    updateLayer(canvas);
+    if (canvas.canvasType === 'board') {
+      await updateBoardNameInIDB(canvas.id, canvas.name);
+    }
+    useVaultStore.getState().updateCanvasTitleInTabs(canvas.id, canvas.name);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('canvas_renamed', {
+        detail: { canvasId: canvas.id, newName: canvas.name }
+      }));
+    }
+  }, [updateLayer]);
+
   // Canvas Delete flow
   const handleDeleteConfirm = () => {
     const canvas = deleteModal.canvas;
@@ -252,7 +268,7 @@ export default function Dashboard() {
   const handleReconnectActiveFSA = async () => {
     try {
       setIsConnectingFSA(true);
-      const success = await connectFSA(activeVaultId, true);
+      const success = await connectFSA(activeVaultId, false);
       if (success) {
         await refreshNodes();
       }
@@ -364,7 +380,7 @@ export default function Dashboard() {
           onCreateCanvas={() => setIsCreateCanvasModalOpen(true)}
           onOpenCanvas={handleOpenCanvas}
           onDeleteCanvas={(canvas) => setDeleteModal({ isOpen: true, canvas })}
-          onUpdateCanvas={updateLayer}
+          onUpdateCanvas={handleUpdateCanvas}
           theme={currentTheme}
         />
 
@@ -377,7 +393,12 @@ export default function Dashboard() {
             realNodes={realGraphNodes}
             realLinks={realGraphLinks}
             isLoading={isGraphLoading}
-            onSelectNode={(pathOrTitle, isCanvas) => {
+            onSelectNode={async (pathOrTitle, isCanvas) => {
+              if (activeVault.storageType === 'fsa' && !isConnected) {
+                try {
+                  await connectFSA(activeVaultId, false);
+                } catch {}
+              }
               if (isElectron()) {
                 setWindowMode('workspace');
               }

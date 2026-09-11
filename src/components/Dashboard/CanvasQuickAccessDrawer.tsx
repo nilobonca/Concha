@@ -20,6 +20,7 @@ import {
 import { Layer } from '@/interfaces/utils/indexedDB';
 import { RegisteredVault } from '@/modules/vault/hooks/useVaultRegistry';
 import { SafeIcon } from '@/components/common/SafeIcon';
+import { useSmoothHorizontalScroll } from '@/hooks/useSmoothHorizontalScroll';
 import clsx from 'clsx';
 
 interface CanvasQuickAccessDrawerProps {
@@ -48,6 +49,7 @@ export const CanvasQuickAccessDrawer: React.FC<CanvasQuickAccessDrawerProps> = (
   onDeleteCanvas,
   onUpdateCanvas,
 }) => {
+  const filterPillsRef = useSmoothHorizontalScroll<HTMLDivElement>({ speed: 1.15, easing: 0.16 });
   const router = useRouter();
   const [tabMode, setTabMode] = useState<TabMode>('by-vault');
   const [searchQuery, setSearchQuery] = useState('');
@@ -287,7 +289,10 @@ export const CanvasQuickAccessDrawer: React.FC<CanvasQuickAccessDrawerProps> = (
             </div>
 
             {/* Type Filter Pills */}
-            <div className="flex items-center gap-1 shrink-0 overflow-x-auto">
+            <div 
+              ref={filterPillsRef}
+              className="flex items-center gap-1 shrink-0 overflow-x-auto overflow-y-hidden no-scrollbar"
+            >
               <button
                 onClick={() => setTypeFilter('all')}
                 className={clsx(

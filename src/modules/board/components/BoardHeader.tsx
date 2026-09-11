@@ -34,6 +34,10 @@ export const BoardHeader: React.FC<BoardHeaderProps> = ({
     setIsElec(isElectron());
   }, []);
 
+  useEffect(() => {
+    setTempName(boardName);
+  }, [boardName]);
+
   const handleSave = () => {
     if (tempName.trim()) {
       onUpdateName(tempName.trim());
@@ -82,6 +86,7 @@ export const BoardHeader: React.FC<BoardHeaderProps> = ({
                 if (e.key === 'Enter') handleSave();
                 if (e.key === 'Escape') setIsEditing(false);
               }}
+              onBlur={handleSave}
               autoFocus
               className="bg-stone-50 dark:bg-black/40 border border-[#1831D7] rounded-lg px-2 py-0.5 text-sm font-semibold outline-none w-48 text-stone-900 dark:text-white"
             />

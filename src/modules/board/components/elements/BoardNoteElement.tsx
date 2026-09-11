@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { BookOpen } from 'lucide-react';
 import { useGesture } from '@use-gesture/react';
 import { BoardElement, HandlePosition, NoteData } from '../../types';
 import { ElementHandles } from './ElementHandles';
@@ -11,13 +12,14 @@ import clsx from 'clsx';
 import { cleanLegacyPlaceholder, cleanDuplicateTitle } from '@/utils/cleanLegacyPlaceholder';
 import { UpdateOriginalNoteModal } from '@/modules/vault/components/UpdateOriginalNoteModal';
 import { getCanvasNoteSyncPref, setCanvasNoteSyncPref } from '@/modules/vault/utils/canvasNoteSyncPref';
+import { handleTextareaFormattingShortcut, handleTextareaAutoPairing } from '@/utils/textareaFormatting';
 
 interface BoardNoteElementProps {
   element: BoardElement;
   isSelected: boolean;
   snappedHandle?: HandlePosition | null;
   zoom: number;
-  onSelect: () => void;
+  onSelect: (e?: React.MouseEvent | React.PointerEvent) => void;
   onUpdate: (updates: Partial<BoardElement>) => void;
   onDelete: () => void;
   onStartArrow: (handle: HandlePosition, e: React.PointerEvent) => void;
@@ -57,16 +59,19 @@ function processMarkdownForPreview(markdown: string, title?: string): string {
     return '';
   }
 
+  // Convert Obsidian ==highlight== syntax to <mark>
+  let processed = cleaned.replace(/==([^=\n]+)==/g, '<mark>$1</mark>');
+
   // Convert wikilinks [[Target|Alias]] or [[Target]] to badges
-  const withWikilinks = cleaned.replace(/\[\[(.*?)(?:\|(.*?))?\]\]/g, (_m, target, alias) => {
+  processed = processed.replace(/\[\[(.*?)(?:\|(.*?))?\]\]/g, (_m, target, alias) => {
     const text = alias || target;
     return `<span class="inline-flex items-center px-1.5 py-0.2 rounded bg-black/10 font-mono text-[11px] font-semibold border border-black/10">[[${text}]]</span>`;
   });
 
   try {
-    return marked.parse(withWikilinks, { async: false, breaks: true }) as string;
+    return marked.parse(processed, { async: false, breaks: true }) as string;
   } catch {
-    return withWikilinks;
+    return processed;
   }
 }
 
@@ -89,6 +94,16 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
   const data = useMemo(() => (element.data || {}) as NoteData, [element.data]);
   const wasSelectedRef = useRef(isSelected);
   const pointerDownPosRef = useRef<{ x: number; y: number } | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Ao entrar no modo de edição, foca a textarea e posiciona o cursor no final do texto
+  useEffect(() => {
+    if (isEditing && textareaRef.current) {
+      textareaRef.current.focus();
+      const len = textareaRef.current.value.length;
+      textareaRef.current.setSelectionRange(len, len);
+    }
+  }, [isEditing]);
 
   // Nome/título da nota usado para filtrar duplicações
   const noteTitle = data.title || (data.filePath ? data.filePath.split('/').pop()?.replace(/\.(md|txt)$/i, '') : '') || '';
@@ -111,15 +126,117 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
       setDraftContent(cleaned);
       onUpdate({ data: { ...data, content: cleaned } });
     }
-  }, [cachedVaultDoc?.content, data.filePath, isEditing, data, noteTitle, onUpdate]);
+  }, [cachedVaultDoc?.content, data.filePath, isEditing, data.content, noteTitle, onUpdate]);
 
-  const handleUpdateTitle = useCallback((newTitle: string) => {
+  const handleUpdateTitle = useCallback(async (newTitle: string) => {
+    const cleanTitle = newTitle.trim().replace(/\.(md|txt)$/i, '');
+    if (!cleanTitle) return;
+
+    try {
+      const vaultStore = useVaultStore.getState();
+      if (!vaultStore.provider) {
+        await vaultStore.initializeStorage();
+      }
+    } catch (e) {
+      console.warn('Erro ao inicializar storage do Vault no Board:', e);
+    }
+
+    if (data.filePath) {
+      const normalizedPath = data.filePath.replace(/\\/g, '/').replace(/^\/+/, '');
+      const parts = normalizedPath.split('/');
+      const isTxt = normalizedPath.toLowerCase().endsWith('.txt');
+      const ext = isTxt ? '.txt' : '.md';
+      const currentFileName = parts[parts.length - 1].replace(/\.(md|txt)$/i, '');
+
+      if (cleanTitle !== currentFileName) {
+        const newFileName = `${cleanTitle}${ext}`;
+        parts[parts.length - 1] = newFileName;
+        const newPath = parts.join('/');
+
+        try {
+          await useVaultStore.getState().renameNode(data.filePath, newPath, false);
+
+          onUpdate({
+            data: {
+              ...data,
+              title: cleanTitle,
+              filePath: newPath,
+            }
+          });
+          return;
+        } catch (err) {
+          console.warn('Falha ao renomear nota no Vault a partir do Board, criando/recuperando no novo caminho:', err);
+          try {
+            const provider = useVaultStore.getState().provider;
+            if (provider) {
+              await provider.createDocument(newPath, data.content || '');
+              await useVaultStore.getState().refreshNodes();
+              onUpdate({
+                data: {
+                  ...data,
+                  title: cleanTitle,
+                  filePath: newPath,
+                }
+              });
+              return;
+            }
+          } catch (createErr) {
+            console.error('Falha ao recriar documento no Vault a partir do Board:', createErr);
+          }
+        }
+      }
+    } else {
+      // Se não havia filePath vinculado, cria a nota no Vault para persistência real
+      try {
+        const createdPath = await useVaultStore.getState().createFile('', cleanTitle, data.content || '', false);
+        if (createdPath) {
+          onUpdate({
+            data: {
+              ...data,
+              title: cleanTitle,
+              filePath: createdPath,
+            }
+          });
+          return;
+        }
+      } catch (err) {
+        console.error('Erro ao criar nota no Vault a partir do título no Board:', err);
+      }
+    }
+
     onUpdate({
       data: {
         ...data,
-        title: newTitle,
+        title: cleanTitle,
       }
     });
+  }, [data, onUpdate]);
+
+  // Observa renomeação externa da nota do Vault para manter o elemento sincronizado
+  useEffect(() => {
+    const handleVaultNodeRenamed = (e: Event) => {
+      const customEvent = e as CustomEvent<{ oldPath: string; newPath: string }>;
+      if (customEvent.detail && data.filePath) {
+        const normOld = customEvent.detail.oldPath.replace(/\\/g, '/').replace(/^\/+/, '');
+        const normCurrent = data.filePath.replace(/\\/g, '/').replace(/^\/+/, '');
+        if (normOld === normCurrent || customEvent.detail.oldPath === data.filePath) {
+          const newPath = customEvent.detail.newPath.replace(/\\/g, '/').replace(/^\/+/, '');
+          const newTitle = newPath.split('/').pop()?.replace(/\.(md|txt)$/i, '') || '';
+          onUpdate({
+            data: {
+              ...data,
+              filePath: newPath,
+              title: newTitle,
+            }
+          });
+        }
+      }
+    };
+
+    window.addEventListener('vault_node_renamed', handleVaultNodeRenamed);
+    return () => {
+      window.removeEventListener('vault_node_renamed', handleVaultNodeRenamed);
+    };
   }, [data, onUpdate]);
 
   // Estado local do rascunho de edição (limpando qualquer placeholder residual e título redundante)
@@ -143,7 +260,7 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
         }
       });
     }
-  }, [data.content, noteTitle, onUpdate, data]);
+  }, [data.content, noteTitle, onUpdate]);
 
   // Rastreia estado da seleção antes do início do clique
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -154,6 +271,7 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
   // Clique simples: se já estava selecionada antes deste clique, entra em modo de edição
   const handleClick = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('.prevent-edit-trigger')) return;
+    if (e.ctrlKey || e.metaKey || e.shiftKey) return;
 
     if (pointerDownPosRef.current) {
       const dx = Math.abs(e.clientX - pointerDownPosRef.current.x);
@@ -166,10 +284,15 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
     }
   };
 
-  // Duplo clique: ativa edição imediatamente
+  // Duplo clique: ativa seleção e edição imediatamente sem selecionar o texto nativamente
   const handleDoubleClick = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('.prevent-edit-trigger')) return;
+    if (e.ctrlKey || e.metaKey || e.shiftKey) return;
     e.stopPropagation();
+    window.getSelection()?.removeAllRanges();
+    prevIsSelectedRef.current = true;
+    wasSelectedRef.current = true;
+    onSelect(e);
     setIsEditing(true);
   };
 
@@ -181,6 +304,7 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
   // Salvar nota e sair do modo edição
   const saveAndExitEdit = useCallback(() => {
     setIsEditing(false);
+    wasSelectedRef.current = false;
     const cleanedDraft = cleanDuplicateTitle(cleanLegacyPlaceholder(draftContent), noteTitle);
     const hasChanged = cleanedDraft !== cleanDuplicateTitle(cleanLegacyPlaceholder(data.content || ''), noteTitle);
 
@@ -208,6 +332,9 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
     }
   }, [data, draftContent, noteTitle, onUpdate]);
 
+  const saveAndExitEditRef = useRef(saveAndExitEdit);
+  saveAndExitEditRef.current = saveAndExitEdit;
+
   const handleAlwaysUpdate = useCallback(() => {
     setCanvasNoteSyncPref('always');
     if (data.filePath) {
@@ -233,23 +360,31 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
 
     const handlePointerDownOutside = (e: MouseEvent | PointerEvent) => {
       if (showSyncModal) return;
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        saveAndExitEdit();
+      const target = e.target as Node | null;
+      if (containerRef.current && target && !containerRef.current.contains(target)) {
+        saveAndExitEditRef.current();
       }
     };
 
-    window.addEventListener('pointerdown', handlePointerDownOutside, true);
+    // Pequeno atraso para evitar que eventos residuais do clique/duplo-clique inicial fechem prematuramente a edição
+    const timer = setTimeout(() => {
+      window.addEventListener('pointerdown', handlePointerDownOutside, true);
+    }, 50);
+
     return () => {
+      clearTimeout(timer);
       window.removeEventListener('pointerdown', handlePointerDownOutside, true);
     };
-  }, [isEditing, saveAndExitEdit, showSyncModal]);
+  }, [isEditing, showSyncModal]);
 
-  // Se perder a seleção enquanto edita, salva e volta ao modo renderizado
+  // Se perder a seleção enquanto edita, salva e volta ao modo renderizado (apenas se estava selecionado anteriormente)
+  const prevIsSelectedRef = useRef(isSelected);
   useEffect(() => {
-    if (!isSelected && isEditing) {
-      saveAndExitEdit();
+    if (prevIsSelectedRef.current && !isSelected && isEditing) {
+      saveAndExitEditRef.current();
     }
-  }, [isSelected, isEditing, saveAndExitEdit]);
+    prevIsSelectedRef.current = isSelected;
+  }, [isSelected, isEditing]);
 
   const renderedHtml = useMemo(() => {
     const rawContent = isEditing
@@ -269,12 +404,12 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
     },
     onDragStart: ({ event }) => {
       event.stopPropagation();
-      onSelect();
+      onSelect(event as any);
     },
   }, {
     drag: {
       from: () => [element.x * zoom, element.y * zoom],
-      filterTaps: true,
+      filterTaps: false,
     }
   });
 
@@ -378,11 +513,15 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
       onClick={(e) => {
         e.stopPropagation();
         containerRef.current?.focus({ preventScroll: true });
-        onSelect();
+        onSelect(e);
         handleClick(e);
       }}
       onDoubleClick={handleDoubleClick}
       onKeyDownCapture={(e) => {
+        const targetTag = (e.target as HTMLElement)?.tagName;
+        if (targetTag === 'TEXTAREA' || targetTag === 'INPUT') {
+          return;
+        }
         if (isEditing) {
           e.stopPropagation();
           e.nativeEvent.stopImmediatePropagation();
@@ -426,7 +565,7 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
 
       {/* Título/nome da nota em cima do retângulo de borda à esquerda */}
       <BoardNoteTitle
-        title={data.title}
+        title={noteTitle}
         onUpdateTitle={handleUpdateTitle}
       />
 
@@ -441,6 +580,7 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
           if (isEditing) {
             saveAndExitEdit();
           } else {
+            onSelect();
             setIsEditing(true);
           }
         }}
@@ -449,11 +589,15 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
         }}
         onCenterElement={onCenterElement}
         onDelete={onDelete}
+        onOpenInVault={data.filePath ? () => {
+          useVaultStore.getState().openDocument(data.filePath!);
+        } : undefined}
       />
 
       {/* Cartão Delimitador da Nota */}
       <div
         {...bindDrag()}
+        onDoubleClick={handleDoubleClick}
         className={clsx(
           "w-full h-full rounded-2xl border-[3px] shadow-sm flex flex-col overflow-hidden relative cursor-grab active:cursor-grabbing",
           isSelected ? "shadow-lg shadow-black/10" : ""
@@ -470,35 +614,43 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
             onPointerDown={(e) => e.stopPropagation()}
           >
             <textarea
+              ref={textareaRef}
               autoFocus
               value={draftContent}
               onChange={(e) => {
                 setDraftContent(e.target.value);
               }}
-              onKeyDownCapture={(e) => {
-                e.stopPropagation();
-                e.nativeEvent.stopImmediatePropagation();
-              }}
               onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.stopPropagation();
+                  e.nativeEvent.stopImmediatePropagation();
+                  saveAndExitEdit();
+                  return;
+                }
+                if (handleTextareaFormattingShortcut(e, setDraftContent)) {
+                  return;
+                }
+                if (handleTextareaAutoPairing(e, setDraftContent)) {
+                  return;
+                }
                 e.stopPropagation();
                 e.nativeEvent.stopImmediatePropagation();
-                if (e.key === 'Escape') {
-                  saveAndExitEdit();
-                }
               }}
               className="w-full h-full resize-none bg-transparent outline-none font-sans text-xs leading-relaxed text-neutral-900 custom-scrollbar"
             />
           </div>
         ) : (
           <div
-            className="board-note-preview w-full flex-1 min-h-0 p-4 pt-1 overflow-y-auto custom-scrollbar select-text cursor-default"
+            className="board-note-preview w-full flex-1 min-h-0 p-4 pt-1 overflow-y-auto custom-scrollbar select-none cursor-default"
             onDoubleClick={(e) => {
               e.stopPropagation();
-              setIsEditing(true);
+              window.getSelection()?.removeAllRanges();
+              handleDoubleClick(e);
             }}
             dangerouslySetInnerHTML={{ __html: renderedHtml }}
           />
         )}
+
       </div>
 
       {/* Modal de Confirmação de Atualização da Nota Original */}

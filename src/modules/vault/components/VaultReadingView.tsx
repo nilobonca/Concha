@@ -57,7 +57,7 @@ export const VaultReadingView: React.FC<VaultReadingViewProps> = ({ content }) =
   return (
     <div 
       ref={containerRef}
-      className="prose prose-invert max-w-none min-h-[500px] text-stone-900 dark:text-neutral-200 leading-relaxed text-base font-normal select-text"
+      className="prose dark:prose-invert max-w-none min-h-[500px] text-stone-900 dark:text-neutral-200 leading-relaxed text-base font-normal select-text"
       onClick={handleClick}
       dangerouslySetInnerHTML={{ __html: html }}
     />

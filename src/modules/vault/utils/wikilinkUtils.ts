@@ -89,10 +89,27 @@ export function extractContextSnippet(text: string, matchIndex: number, matchLen
   return snippet;
 }
 
+import { sanitizeVaultFileName } from './fileNameUtils';
+
 /**
- * Normalizes title for comparison (case-insensitive, ignores .md extension and #section)
+ * Normalizes title for comparison (case-insensitive, ignores .md extension and #section,
+ * handles Unicode NFC, decodes URL components and maps prohibited characters uniformly)
  */
 export function normalizeNoteTitle(title: string): string {
-  const base = title.split('#')[0];
-  return base.trim().toLowerCase().replace(/\.(md|txt)$/, '');
+  if (!title) return '';
+  let base = title.split('#')[0];
+  if (/%[0-9a-fA-F]{2}/.test(base)) {
+    try {
+      base = decodeURIComponent(base);
+    } catch {}
+  }
+
+  const segments = base.split('/').map((seg) => sanitizeVaultFileName(seg, false));
+  return segments
+    .join('/')
+    .trim()
+    .normalize('NFC')
+    .toLowerCase()
+    .replace(/\.(md|txt)$/i, '');
 }
+

@@ -82,7 +82,7 @@ export const AppSidebarRibbon: React.FC<AppSidebarRibbonProps> = (props) => {
   };
 
   const handleSelectVault = async (targetVault: RegisteredVault) => {
-    if (targetVault.id === vaultRegistry.activeVaultId) {
+    if (targetVault.id === vaultRegistry.activeVaultId && vaultStore.isConnected) {
       setVaultMenuOpen(false);
       return;
     }

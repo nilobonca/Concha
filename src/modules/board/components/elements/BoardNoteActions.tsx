@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { SquarePen, Palette, Trash2, Focus, Check } from 'lucide-react';
+import { SquarePen, Palette, Trash2, Focus, Check, BookOpen } from 'lucide-react';
 import clsx from 'clsx';
 
 export interface BoardNoteActionsProps {
@@ -12,6 +12,7 @@ export interface BoardNoteActionsProps {
   onUpdateColor: (color: string) => void;
   onDelete: () => void;
   onCenterElement?: () => void;
+  onOpenInVault?: () => void;
   className?: string;
 }
 
@@ -25,6 +26,7 @@ export const BoardNoteActions: React.FC<BoardNoteActionsProps> = ({
   onUpdateColor,
   onDelete,
   onCenterElement,
+  onOpenInVault,
   className,
 }) => {
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -121,7 +123,23 @@ export const BoardNoteActions: React.FC<BoardNoteActionsProps> = ({
         </button>
       )}
 
-      {/* 4. Botão Editar */}
+      {/* 4. Botão Abrir no Editor do Vault */}
+      {onOpenInVault && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenInVault();
+          }}
+          className="p-1.5 rounded-lg hover:bg-stone-100 dark:hover:bg-white/10 text-stone-600 dark:text-neutral-300 hover:text-[#1831D7] dark:hover:text-[#7F95FF] transition-colors cursor-pointer flex items-center justify-center"
+          title="Abrir no editor do Vault"
+          aria-label="Abrir nota original no editor do Vault"
+        >
+          <BookOpen className="w-3.5 h-3.5" />
+        </button>
+      )}
+
+      {/* 5. Botão Editar */}
       <button
         type="button"
         onClick={(e) => {

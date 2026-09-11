@@ -56,4 +56,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('update-status', handler);
     return () => ipcRenderer.removeListener('update-status', handler);
   },
+
+  // Vaults Registry Persistence API
+  loadVaultsRegistry: () => ipcRenderer.invoke('load-vaults-registry'),
+  saveVaultsRegistry: (data) => ipcRenderer.invoke('save-vaults-registry', data),
 });

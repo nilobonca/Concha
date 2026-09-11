@@ -18,6 +18,18 @@ turndown.escape = (str: string) => str;
 // Enable GitHub Flavored Markdown Tables
 turndown.use(tables);
 
+// Empty paragraph preservation: ensure empty paragraphs or lines with only <br> are not stripped by Turndown
+turndown.addRule('emptyParagraph', {
+  filter: (node) => {
+    if (node.nodeName === 'P') {
+      const html = node.innerHTML.trim();
+      return html === '' || html === '<br>' || html === '<br/>' || html === '<br class="ProseMirror-trailingBreak">' || html === '&nbsp;';
+    }
+    return false;
+  },
+  replacement: () => '\n\n&nbsp;\n\n'
+});
+
 // Embed Note: <div data-type="embed-note"> -> ![[Target]]
 turndown.addRule('embedNote', {
   filter: (node) => {
@@ -207,6 +219,17 @@ export function markdownToHtml(raw: string): string {
   clean = clean.replace(/```mermaid\s*([\s\S]*?)```/g, (_m, chart) => {
     return `<div data-type="mermaid" data-chart="${encodeURIComponent(chart.trim())}" class="vault-mermaid-diagram my-4 p-4 rounded-xl border border-stone-200/80 dark:border-white/10 bg-stone-50/40 dark:bg-white/[0.02] flex justify-center text-xs text-stone-400 font-mono">Carregando diagrama...</div>`;
   });
+
+  // Preserve intentional multiple blank lines (2 or more Enters) outside code blocks
+  const codeBlocks: string[] = [];
+  clean = clean.replace(/(```[\s\S]*?```|`[^`\n]+`)/g, (match) => {
+    codeBlocks.push(match);
+    return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
+  });
+
+  clean = clean.replace(/\n{3,}/g, (match) => '\n\n' + '&nbsp;\n\n'.repeat(match.length - 2));
+
+  clean = clean.replace(/__CODE_BLOCK_(\d+)__/g, (_m, idx) => codeBlocks[Number(idx)] || '');
 
   try {
     let parsed = marked.parse(clean, { async: false, breaks: true }) as string;

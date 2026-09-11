@@ -30,9 +30,37 @@ const DEFAULT_PREVIEW_WIDTH = 260;
 const DEFAULT_PREVIEW_HEIGHT = 150;
 
 export function useBoardCanvas(boardId: string, initialName?: string) {
-  const { boardData, setBoardData, persistBoard, isLoading } = useBoardStorage(boardId, initialName);
+  const { boardData, setBoardData, persistBoard, isLoading, flushSave } = useBoardStorage(boardId, initialName);
 
-  const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
+  const [selectedElementIds, setSelectedElementIds] = useState<Set<string>>(new Set());
+  const selectedElementId = selectedElementIds.size === 1 ? Array.from(selectedElementIds)[0] : (selectedElementIds.size > 0 ? Array.from(selectedElementIds)[selectedElementIds.size - 1] : null);
+
+  const setSelectedElementId = useCallback((id: string | null) => {
+    if (!id) {
+      setSelectedElementIds(new Set());
+    } else {
+      setSelectedElementIds(new Set([id]));
+    }
+  }, []);
+
+  const handleSelectElement = useCallback((id: string, e?: React.MouseEvent | React.PointerEvent) => {
+    const isMultiKey = e && (('ctrlKey' in e && e.ctrlKey) || ('metaKey' in e && e.metaKey) || ('shiftKey' in e && e.shiftKey));
+    if (isMultiKey) {
+      setSelectedElementIds(prev => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+    } else {
+      setSelectedElementIds(new Set([id]));
+    }
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectedElementIds(new Set());
+  }, []);
+
   const [editingElementId, setEditingElementId] = useState<string | null>(null);
   const [viewport, setViewport] = useState<ViewportTransform>({ x: -100, y: -100, k: 1 });
   const viewportRef = useRef(viewport);
@@ -46,17 +74,15 @@ export function useBoardCanvas(boardId: string, initialName?: string) {
 
   // Manipulação de conexões
   const setConnections = useCallback((updater: (prev: BoardConnection[]) => BoardConnection[]) => {
-    setBoardData(prev => {
+    persistBoard(prev => {
       const updatedConnections = updater(prev.connections);
-      const updated = {
+      return {
         ...prev,
         connections: updatedConnections,
         updatedAt: new Date().toISOString(),
       };
-      persistBoard(updated);
-      return updated;
-    });
-  }, [persistBoard, setBoardData]);
+    }, true);
+  }, [persistBoard]);
 
   // Criar elemento do mesmo tipo de origem e conectar ao soltar seta no espaço vazio
   const handleAutoSpawnAndConnect = useCallback(async (
@@ -166,19 +192,15 @@ export function useBoardCanvas(boardId: string, initialName?: string) {
       color: '#818cf8',
     };
 
-    setBoardData(prev => {
-      const updated = {
-        ...prev,
-        elements: [...prev.elements, newElement],
-        connections: [...prev.connections, newConnection],
-        updatedAt: new Date().toISOString(),
-      };
-      persistBoard(updated);
-      return updated;
-    });
+    persistBoard(prev => ({
+      ...prev,
+      elements: [...prev.elements, newElement],
+      connections: [...prev.connections, newConnection],
+      updatedAt: new Date().toISOString(),
+    }), true);
 
     setSelectedElementId(newElement.id);
-  }, [boardData.elements, boardId, persistBoard, setBoardData]);
+  }, [boardId, persistBoard, setSelectedElementId]);
 
   const connectionsHook = useBoardConnections(
     boardData.elements,
@@ -187,75 +209,114 @@ export function useBoardCanvas(boardId: string, initialName?: string) {
     handleAutoSpawnAndConnect
   );
 
-  // Atualizar elemento
-  const updateElement = useCallback((id: string, updates: Partial<BoardElement>) => {
-    setBoardData(prev => {
-      const updatedElements = prev.elements.map(el =>
-        el.id === id ? { ...el, ...updates } : el
-      );
-      const updated = {
+  // Atualizar elemento (com suporte a movimentação em grupo e persistência imediata para conteúdo)
+  const updateElement = useCallback((id: string, updates: Partial<BoardElement>, immediate = false) => {
+    const isContentChange = Boolean(updates.data);
+    persistBoard(prev => {
+      const target = prev.elements.find(el => el.id === id);
+      const dx = (updates.x !== undefined && target) ? updates.x - target.x : 0;
+      const dy = (updates.y !== undefined && target) ? updates.y - target.y : 0;
+      const isMovingGroup = (dx !== 0 || dy !== 0) && selectedElementIds.has(id) && selectedElementIds.size > 1;
+
+      const updatedElements = prev.elements.map(el => {
+        if (el.id === id) {
+          return { ...el, ...updates };
+        }
+        if (isMovingGroup && selectedElementIds.has(el.id)) {
+          return {
+            ...el,
+            x: Math.max(0, el.x + dx),
+            y: Math.max(0, el.y + dy),
+          };
+        }
+        return el;
+      });
+      return {
         ...prev,
         elements: updatedElements,
         updatedAt: new Date().toISOString(),
       };
-      persistBoard(updated);
-      return updated;
-    });
-  }, [persistBoard, setBoardData]);
+    }, immediate || isContentChange);
+  }, [persistBoard, selectedElementIds]);
 
   // Excluir elemento (e conexões vinculadas)
   const deleteElement = useCallback((id: string) => {
-    setBoardData(prev => {
+    persistBoard(prev => {
       const updatedElements = prev.elements.filter(el => el.id !== id);
       const updatedConnections = prev.connections.filter(
         c => c.fromId !== id && c.toId !== id
       );
-      const updated = {
+      return {
         ...prev,
         elements: updatedElements,
         connections: updatedConnections,
         updatedAt: new Date().toISOString(),
       };
-      persistBoard(updated);
-      return updated;
+    }, true);
+    setSelectedElementIds(prev => {
+      if (prev.has(id)) {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      }
+      return prev;
     });
-    if (selectedElementId === id) setSelectedElementId(null);
-  }, [persistBoard, selectedElementId, setBoardData]);
+  }, [persistBoard]);
+
+  const deleteSelectedElements = useCallback(() => {
+    if (selectedElementIds.size === 0) return;
+    const idsToDelete = new Set(selectedElementIds);
+    persistBoard(prev => {
+      const updatedElements = prev.elements.filter(el => !idsToDelete.has(el.id));
+      const updatedConnections = prev.connections.filter(
+        c => !idsToDelete.has(c.fromId) && !idsToDelete.has(c.toId)
+      );
+      return {
+        ...prev,
+        elements: updatedElements,
+        connections: updatedConnections,
+        updatedAt: new Date().toISOString(),
+      };
+    }, true);
+    setSelectedElementIds(new Set());
+  }, [persistBoard, selectedElementIds]);
 
   // Atualizar nome do board
   const updateBoardName = useCallback((name: string) => {
-    setBoardData(prev => {
-      const updated = { ...prev, name, updatedAt: new Date().toISOString() };
-      persistBoard(updated);
-      return updated;
-    });
-  }, [persistBoard, setBoardData]);
+    persistBoard(prev => ({
+      ...prev,
+      name,
+      updatedAt: new Date().toISOString(),
+    }), true);
+  }, [persistBoard]);
 
   // Adicionar elemento genérico
   const addElement = useCallback((element: Omit<BoardElement, 'boardId'>) => {
-    const maxZ = boardData.elements.length > 0
-      ? Math.max(...boardData.elements.map(e => e.zIndex))
-      : 0;
+    const id = element.id || uuidv4();
+    let newEl: BoardElement;
 
-    const newEl: BoardElement = {
-      ...element,
-      boardId,
-      zIndex: maxZ + 1,
-    };
+    persistBoard(prev => {
+      const maxZ = prev.elements.length > 0
+        ? Math.max(...prev.elements.map(e => e.zIndex || 0))
+        : 0;
 
-    setBoardData(prev => {
-      const updated = {
+      newEl = {
+        ...element,
+        id,
+        boardId,
+        zIndex: maxZ + 1,
+      };
+
+      return {
         ...prev,
         elements: [...prev.elements, newEl],
         updatedAt: new Date().toISOString(),
       };
-      persistBoard(updated);
-      return updated;
-    });
+    }, true);
 
-    setSelectedElementId(newEl.id);
-    return newEl;
-  }, [boardData.elements, boardId, persistBoard, setBoardData]);
+    setSelectedElementId(id);
+    return newEl!;
+  }, [boardId, persistBoard, setSelectedElementId]);
 
   // Criar Nota (com criação automática e vinculação no Vault)
   const createNote = useCallback(async (
@@ -479,11 +540,11 @@ export function useBoardCanvas(boardId: string, initialName?: string) {
       }
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (selectedElementId) {
+        if (selectedElementIds.size > 0) {
           e.preventDefault();
           e.stopPropagation();
           e.stopImmediatePropagation?.();
-          deleteElement(selectedElementId);
+          deleteSelectedElements();
         } else if (connectionsHook.selectedConnectionId) {
           e.preventDefault();
           e.stopPropagation();
@@ -493,31 +554,113 @@ export function useBoardCanvas(boardId: string, initialName?: string) {
       }
 
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
-        if (selectedElementId) {
+        if (selectedElementIds.size > 0) {
           e.preventDefault();
           const step = e.shiftKey ? 50 : 10;
           const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
           const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
-          const current = boardData.elements.find(el => el.id === selectedElementId);
-          if (current) {
-            updateElement(selectedElementId, {
-              x: Math.max(0, current.x + dx),
-              y: Math.max(0, current.y + dy),
+
+          persistBoard(prev => {
+            const updatedElements = prev.elements.map(el => {
+              if (selectedElementIds.has(el.id)) {
+                return {
+                  ...el,
+                  x: Math.max(0, el.x + dx),
+                  y: Math.max(0, el.y + dy),
+                };
+              }
+              return el;
             });
-          }
+            return {
+              ...prev,
+              elements: updatedElements,
+              updatedAt: new Date().toISOString(),
+            };
+          }, false);
         }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [connectionsHook, deleteElement, selectedElementId, boardData.elements, updateElement, editingElementId]);
+  }, [connectionsHook, deleteSelectedElements, selectedElementIds, boardData.elements, editingElementId, persistBoard]);
+
+  // Observa renomeação de notas no Vault para atualizar elementos do canvas
+  useEffect(() => {
+    const handleVaultNodeRenamed = (e: Event) => {
+      const customEvent = e as CustomEvent<{ oldPath: string; newPath: string }>;
+      if (!customEvent.detail?.oldPath || !customEvent.detail?.newPath) return;
+      const { oldPath, newPath } = customEvent.detail;
+      const newTitle = newPath.split('/').pop()?.replace(/\.(md|txt)$/i, '') || '';
+
+      persistBoard(prev => {
+        let hasChanges = false;
+        const nextElements = prev.elements.map(el => {
+          if (el.type === 'note') {
+            const nData = (el.data || {}) as NoteData;
+            if (nData.filePath === oldPath) {
+              hasChanges = true;
+              return {
+                ...el,
+                data: {
+                  ...nData,
+                  filePath: newPath,
+                  title: newTitle,
+                }
+              };
+            }
+          }
+          return el;
+        });
+
+        if (!hasChanges) return prev;
+        return {
+          ...prev,
+          elements: nextElements,
+          updatedAt: new Date().toISOString(),
+        };
+      }, true);
+    };
+
+    window.addEventListener('vault_node_renamed', handleVaultNodeRenamed);
+    return () => {
+      window.removeEventListener('vault_node_renamed', handleVaultNodeRenamed);
+    };
+  }, [persistBoard]);
+
+  // Observa renomeação do próprio canvas externamente
+  useEffect(() => {
+    const handleCanvasRenamed = (e: Event) => {
+      const customEvent = e as CustomEvent<{ canvasId: string; newName: string }>;
+      if (customEvent.detail?.canvasId === boardId && customEvent.detail?.newName) {
+        persistBoard(prev => {
+          if (prev.name === customEvent.detail.newName) return prev;
+          return {
+            ...prev,
+            name: customEvent.detail.newName,
+            updatedAt: new Date().toISOString(),
+          };
+        }, true);
+      }
+    };
+
+    window.addEventListener('canvas_renamed', handleCanvasRenamed);
+    return () => {
+      window.removeEventListener('canvas_renamed', handleCanvasRenamed);
+    };
+  }, [boardId, persistBoard]);
 
   return {
     boardData,
     isLoading,
+    flushSave,
     selectedElementId,
     setSelectedElementId,
+    selectedElementIds,
+    setSelectedElementIds,
+    handleSelectElement,
+    clearSelection,
+    deleteSelectedElements,
     editingElementId,
     setEditingElementId,
     viewport,

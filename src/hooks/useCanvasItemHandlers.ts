@@ -53,6 +53,8 @@ export const useCanvasItemHandlers = ({
     deletePinPersisted,
     activeSoundboardItems,
     updateSoundboardItemPersisted,
+    activeNotes,
+    updateNotePersisted,
     activeGlobalTracks,
     realActiveAreas,
     realActivePins,
@@ -108,6 +110,14 @@ export const useCanvasItemHandlers = ({
             });
           }
 
+          const note = activeNotes.find((n) => n.id === itemId);
+          if (note && itemStartPos.x !== undefined && itemStartPos.y !== undefined) {
+            updateNotePersisted({
+              ...note,
+              position: { x: itemStartPos.x + totalDx, y: itemStartPos.y + totalDy },
+            });
+          }
+
           const area = activeAreas.find((a) => a.id === itemId);
           if (area && itemStartPos.points) {
             const newPoints = itemStartPos.points.map((p) => ({ x: p.x + totalDx, y: p.y + totalDy }));
@@ -126,11 +136,13 @@ export const useCanvasItemHandlers = ({
     [
       activeImages,
       activePins,
+      activeNotes,
       activeAreas,
       dragStartPositions,
       selectedItemIds,
       updateImagePersisted,
       updatePinPersisted,
+      updateNotePersisted,
       updateAreaPersisted,
     ]
   );
@@ -233,6 +245,14 @@ export const useCanvasItemHandlers = ({
             updatePinPersisted(updatedPin);
           }
 
+          const note = activeNotes.find((n) => n.id === id);
+          if (note && itemStartPos.x !== undefined && itemStartPos.y !== undefined) {
+            updateNotePersisted({
+              ...note,
+              position: { x: itemStartPos.x + totalDx, y: itemStartPos.y + totalDy },
+            });
+          }
+
           const areaIndex = currentActiveAreas.findIndex((a) => a.id === id);
           if (areaIndex !== -1 && itemStartPos.points) {
             const area = currentActiveAreas[areaIndex];
@@ -294,6 +314,8 @@ export const useCanvasItemHandlers = ({
       updateAreaPersisted,
       updateImagePersisted,
       updatePinPersisted,
+      updateNotePersisted,
+      activeNotes,
     ]
   );
 
@@ -331,6 +353,14 @@ export const useCanvasItemHandlers = ({
             };
             currentActivePins[pinIndex] = updatedPin;
             updatePinPersisted(updatedPin);
+          }
+
+          const note = activeNotes.find((n) => n.id === id);
+          if (note && itemStartPos.x !== undefined && itemStartPos.y !== undefined) {
+            updateNotePersisted({
+              ...note,
+              position: { x: itemStartPos.x + totalDx, y: itemStartPos.y + totalDy },
+            });
           }
 
           const areaIndex = currentActiveAreas.findIndex((a) => a.id === id);
@@ -407,6 +437,8 @@ export const useCanvasItemHandlers = ({
       updatePinPersisted,
       updateImagePersisted,
       updateAreaPersisted,
+      updateNotePersisted,
+      activeNotes,
     ]
   );
 
@@ -454,12 +486,16 @@ export const useCanvasItemHandlers = ({
               position: { x: itemStartPos.x + totalDx, y: itemStartPos.y + totalDy },
             });
           }
+          const note = activeNotes.find((n) => n.id === itemId);
+          if (note && itemStartPos.x !== undefined && itemStartPos.y !== undefined) {
+            updateNotePersisted({
+              ...note,
+              position: { x: itemStartPos.x + totalDx, y: itemStartPos.y + totalDy },
+            });
+          }
           const area = activeAreas.find((a) => a.id === itemId);
           if (area && itemStartPos.points) {
-            const newPoints = itemStartPos.points.map((p: { x: number; y: number }) => ({
-              x: p.x + totalDx,
-              y: p.y + totalDy,
-            }));
+            const newPoints = itemStartPos.points.map((p) => ({ x: p.x + totalDx, y: p.y + totalDy }));
             let newVolumeSource = area.volumeSourcePoint;
             if (itemStartPos.volumeSourcePoint) {
               newVolumeSource = {
@@ -476,12 +512,93 @@ export const useCanvasItemHandlers = ({
       activeSoundboardItems,
       activeImages,
       activePins,
+      activeNotes,
       activeAreas,
       dragStartPositions,
       selectedItemIds,
       updateSoundboardItemPersisted,
       updateImagePersisted,
       updatePinPersisted,
+      updateNotePersisted,
+      updateAreaPersisted,
+    ]
+  );
+
+  const handleNoteDrag = useCallback(
+    (id: string, x: number, y: number) => {
+      const anchorNote = activeNotes.find((n) => n.id === id);
+      if (anchorNote) updateNotePersisted({ ...anchorNote, position: { x, y } });
+
+      const startPos = dragStartPositions.current[id];
+      if (selectedItemIds.has(id) && startPos && startPos.x !== undefined && startPos.y !== undefined) {
+        const totalDx = x - startPos.x;
+        const totalDy = y - startPos.y;
+
+        selectedItemIds.forEach((itemId) => {
+          if (itemId === id) return;
+
+          const itemStartPos = dragStartPositions.current[itemId];
+          if (!itemStartPos) return;
+
+          const note = activeNotes.find((n) => n.id === itemId);
+          if (note && itemStartPos.x !== undefined && itemStartPos.y !== undefined) {
+            updateNotePersisted({
+              ...note,
+              position: { x: itemStartPos.x + totalDx, y: itemStartPos.y + totalDy },
+            });
+          }
+
+          const img = activeImages.find((i) => i.id === itemId);
+          if (img && itemStartPos.x !== undefined && itemStartPos.y !== undefined) {
+            updateImagePersisted({
+              ...img,
+              position: { x: itemStartPos.x + totalDx, y: itemStartPos.y + totalDy },
+            });
+          }
+
+          const pin = activePins.find((p) => p.id === itemId);
+          if (pin && itemStartPos.x !== undefined && itemStartPos.y !== undefined) {
+            updatePinPersisted({
+              ...pin,
+              position: { x: itemStartPos.x + totalDx, y: itemStartPos.y + totalDy },
+            });
+          }
+
+          const sbItem = activeSoundboardItems.find((i) => i.id === itemId);
+          if (sbItem && itemStartPos.x !== undefined && itemStartPos.y !== undefined) {
+            updateSoundboardItemPersisted({
+              ...sbItem,
+              position: { x: itemStartPos.x + totalDx, y: itemStartPos.y + totalDy },
+            });
+          }
+
+          const area = activeAreas.find((a) => a.id === itemId);
+          if (area && itemStartPos.points) {
+            const newPoints = itemStartPos.points.map((p) => ({ x: p.x + totalDx, y: p.y + totalDy }));
+            let newVolumeSource = area.volumeSourcePoint;
+            if (itemStartPos.volumeSourcePoint) {
+              newVolumeSource = {
+                x: itemStartPos.volumeSourcePoint.x + totalDx,
+                y: itemStartPos.volumeSourcePoint.y + totalDy,
+              };
+            }
+            updateAreaPersisted({ ...area, points: newPoints, volumeSourcePoint: newVolumeSource });
+          }
+        });
+      }
+    },
+    [
+      activeNotes,
+      activeImages,
+      activePins,
+      activeSoundboardItems,
+      activeAreas,
+      dragStartPositions,
+      selectedItemIds,
+      updateNotePersisted,
+      updateImagePersisted,
+      updatePinPersisted,
+      updateSoundboardItemPersisted,
       updateAreaPersisted,
     ]
   );
@@ -499,5 +616,6 @@ export const useCanvasItemHandlers = ({
     handlePinDrag,
     handleDeletePin,
     handleSoundboardItemDrag,
+    handleNoteDrag,
   };
 };

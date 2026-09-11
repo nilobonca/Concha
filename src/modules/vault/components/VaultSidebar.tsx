@@ -8,6 +8,7 @@ import ContextMenu from '@/components/ContextMenu';
 import { VaultGeneralCanvasesTab } from './sidebar/VaultGeneralCanvasesTab';
 import { useIDB } from '@/utils/indexedDB';
 import { Layer } from '@/interfaces/utils/indexedDB';
+import { updateBoardNameInIDB } from '@/modules/board/hooks/useBoardStorage';
 import { saveUserTemplate } from '../utils/templateStore';
 import { v4 as uuidv4 } from 'uuid';
 import { 
@@ -15,8 +16,10 @@ import {
   FilePlus, FolderPlus, Trash2, Search, HardDrive, Database,
   RefreshCw, FolderSync, LayoutTemplate, Edit2, BookmarkPlus,
   Copy, FolderInput, Music, Check, FolderKanban, Box, Upload, Image as ImageIcon,
-  Settings
+  Settings, Loader2
 } from 'lucide-react';
+import { FSAStorageProvider } from '../storage/FSAStorageProvider';
+import { InlineRenameInput } from './sidebar/InlineRenameInput';
 
 interface FolderInputRowProps {
   parentPath: string;
@@ -32,43 +35,6 @@ const FolderInputRow: React.FC<FolderInputRowProps> = ({
   onSubmit,
   onCancel,
 }) => {
-  const [name, setName] = useState(defaultName);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const isSubmittedRef = useRef(false);
-  const mountedAtRef = useRef(Date.now());
-
-  React.useEffect(() => {
-    mountedAtRef.current = Date.now();
-    const timer = setTimeout(() => {
-      if (inputRef.current) {
-        inputRef.current.focus();
-        inputRef.current.select();
-      }
-    }, 50);
-    return () => clearTimeout(timer);
-  }, []);
-
-  const handleSubmit = (val?: string) => {
-    if (isSubmittedRef.current) return;
-    isSubmittedRef.current = true;
-    const finalVal = (val !== undefined ? val : name).trim();
-    onSubmit(finalVal || defaultName);
-  };
-
-  const handleCancel = () => {
-    if (isSubmittedRef.current) return;
-    isSubmittedRef.current = true;
-    onCancel();
-  };
-
-  const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
-    // Evita submissão prematura causada pelo clique de montagem do botão
-    if (Date.now() - mountedAtRef.current < 250) {
-      return;
-    }
-    handleSubmit(e.currentTarget.value);
-  };
-
   return (
     <div
       style={{ paddingLeft: `${depth * 14 + 12}px` }}
@@ -79,97 +45,15 @@ const FolderInputRow: React.FC<FolderInputRowProps> = ({
         <ChevronRight className="w-3.5 h-3.5" />
       </span>
       <Folder className="w-4 h-4 text-[#1831D7] dark:text-[#7F95FF] shrink-0" />
-      <input
-        ref={inputRef}
-        type="text"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            handleSubmit(e.currentTarget.value);
-          }
-          if (e.key === 'Escape') {
-            e.preventDefault();
-            handleCancel();
-          }
-        }}
-        onBlur={handleBlur}
+      <InlineRenameInput
+        initialName={defaultName}
+        isFolder={true}
+        onSubmit={onSubmit}
+        onCancel={onCancel}
         className="flex-1 bg-transparent text-xs text-stone-900 dark:text-neutral-100 outline-none font-medium selection:bg-[#7F95FF]/30 dark:selection:bg-[#1831D7]/50"
         placeholder={defaultName}
       />
     </div>
-  );
-};
-
-interface InlineRenameFolderInputProps {
-  initialName: string;
-  onSubmit: (newName: string) => void;
-  onCancel: () => void;
-}
-
-const InlineRenameFolderInput: React.FC<InlineRenameFolderInputProps> = ({
-  initialName,
-  onSubmit,
-  onCancel,
-}) => {
-  const [val, setVal] = useState(initialName);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const isSubmittedRef = useRef(false);
-  const mountedAtRef = useRef(Date.now());
-
-  React.useEffect(() => {
-    mountedAtRef.current = Date.now();
-    const timer = setTimeout(() => {
-      if (inputRef.current) {
-        inputRef.current.focus();
-        inputRef.current.select();
-      }
-    }, 50);
-    return () => clearTimeout(timer);
-  }, []);
-
-  const handleSub = (newVal?: string) => {
-    if (isSubmittedRef.current) return;
-    isSubmittedRef.current = true;
-    const finalVal = (newVal !== undefined ? newVal : val).trim();
-    onSubmit(finalVal || initialName);
-  };
-
-  const handleCanc = () => {
-    if (isSubmittedRef.current) return;
-    isSubmittedRef.current = true;
-    onCancel();
-  };
-
-  const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
-    if (Date.now() - mountedAtRef.current < 250) {
-      return;
-    }
-    handleSub(e.currentTarget.value);
-  };
-
-  return (
-    <input
-      ref={inputRef}
-      type="text"
-      value={val}
-      onChange={(e) => setVal(e.target.value)}
-      onClick={(e) => e.stopPropagation()}
-      onKeyDown={(e) => {
-        e.stopPropagation();
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          handleSub(e.currentTarget.value);
-        }
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          handleCanc();
-        }
-      }}
-      onBlur={handleBlur}
-      className="flex-1 bg-white dark:bg-[#16161D] border border-[#7F95FF]/70 rounded px-1.5 py-0.5 text-xs text-stone-900 dark:text-neutral-100 outline-none shadow-xs selection:bg-[#7F95FF]/30 dark:selection:bg-[#1831D7]/50"
-    />
   );
 };
 
@@ -180,6 +64,7 @@ export const VaultSidebar: React.FC = () => {
     vaultName, 
     setVaultName,
     storageType, 
+    isConnected,
     nodes, 
     expandedFolders, 
     customOrderVersion,
@@ -220,13 +105,19 @@ export const VaultSidebar: React.FC = () => {
     });
   }, [activeLayers, vaultId, isDefaultVault]);
   const generalCanvases = useMemo(() => allCanvases.filter(l => !l.folderPath), [allCanvases]);
+  const hasSavedFolder = useMemo(() => {
+    return provider instanceof FSAStorageProvider ? provider.hasSavedHandle : false;
+  }, [provider]);
+
+  const [isConnectingFolder, setIsConnectingFolder] = useState(false);
+  const [reconnectError, setReconnectError] = useState<string | null>(null);
 
   // New file / folder creation states
   const [newFileInputFolder, setNewFileInputFolder] = useState<string | null>(null);
   const [newFileName, setNewFileName] = useState('');
   const [newFolderInputParent, setNewFolderInputParent] = useState<string | null>(null);
   const [newFolderName, setNewFolderName] = useState('');
-  const [renamingFolderPath, setRenamingFolderPath] = useState<string | null>(null);
+  const [renamingNodePath, setRenamingNodePath] = useState<string | null>(null);
 
   // Drag and drop states
   const [draggedNode, setDraggedNode] = useState<VaultNode | null>(null);
@@ -353,16 +244,9 @@ export const VaultSidebar: React.FC = () => {
     });
   };
 
-  // Delete key handler for selected file/folder/canvas in explorer
+  // Keyboard shortcut handler (Delete & F2 rename) for explorer items
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Delete') return;
-
-      // O atalho Delete do teclado NUNCA deve excluir um canvas/quadro sob nenhuma hipótese!
-      if (selectedPath?.startsWith('canvas:') || activePath?.startsWith('canvas:')) {
-        return;
-      }
-
       const target = e.target as HTMLElement | null;
       const activeEl = document.activeElement as HTMLElement | null;
 
@@ -386,11 +270,30 @@ export const VaultSidebar: React.FC = () => {
         return;
       }
 
+      // Atalho F2 para renomear item selecionado diretamente no explorer
+      if (e.key === 'F2') {
+        const isInsideSidebar = 
+          Boolean(sidebarRef.current && (sidebarRef.current.contains(target) || sidebarRef.current.contains(activeEl)));
+        if (isInsideSidebar && selectedPath && !selectedPath.startsWith('canvas:')) {
+          e.preventDefault();
+          e.stopPropagation();
+          setRenamingNodePath(selectedPath);
+          return;
+        }
+      }
+
+      if (e.key !== 'Delete') return;
+
+      // O atalho Delete do teclado NUNCA deve excluir um canvas/quadro sob nenhuma hipótese!
+      if (selectedPath?.startsWith('canvas:') || activePath?.startsWith('canvas:')) {
+        return;
+      }
+
       // Block if any modal or input row is currently open
       if (
         deleteTarget !== null ||
         promptModal !== null ||
-        renamingFolderPath !== null ||
+        renamingNodePath !== null ||
         newFileInputFolder !== null ||
         newFolderInputParent !== null
       ) {
@@ -439,7 +342,7 @@ export const VaultSidebar: React.FC = () => {
     activePath,
     deleteTarget,
     promptModal,
-    renamingFolderPath,
+    renamingNodePath,
     newFileInputFolder,
     newFolderInputParent,
     nodes,
@@ -542,14 +445,20 @@ export const VaultSidebar: React.FC = () => {
     openCanvasTab(newProjectId, newName);
   };
 
-  const handleCreateFileSubmit = async (folderPath: string) => {
-    if (!newFileName.trim()) {
+  const handleCreateFileSubmit = async (folderPath: string, enteredName?: string) => {
+    const rawName = (enteredName !== undefined ? enteredName : newFileName).trim();
+    if (!rawName) {
       setNewFileInputFolder(null);
       return;
     }
-    await createFile(folderPath, newFileName.trim());
-    setNewFileName('');
-    setNewFileInputFolder(null);
+    try {
+      await createFile(folderPath, rawName);
+    } catch (err) {
+      console.error('Erro ao criar arquivo:', err);
+    } finally {
+      setNewFileName('');
+      setNewFileInputFolder(null);
+    }
   };
 
   const getNextFolderName = (parentPath: string) => {
@@ -607,7 +516,7 @@ export const VaultSidebar: React.FC = () => {
   };
 
   const handleRenameFolderSubmit = async (folderPath: string, newName: string) => {
-    setRenamingFolderPath(null);
+    setRenamingNodePath(null);
     const trimmed = newName.trim();
     if (!trimmed) return;
     const parts = folderPath.split('/');
@@ -619,6 +528,44 @@ export const VaultSidebar: React.FC = () => {
       await renameNode(folderPath, newPath, true);
     } catch (err) {
       console.error('Erro ao renomear pasta:', err);
+    }
+  };
+
+  const handleRenameNodeSubmit = async (node: VaultNode, newName: string) => {
+    setRenamingNodePath(null);
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+
+    const isFolder = node.type === 'folder';
+    const isNote = node.fileType === 'note' || (!node.fileType && (node.name.endsWith('.md') || node.name.endsWith('.txt')));
+
+    let finalFileName = trimmed;
+    if (isFolder) {
+      finalFileName = trimmed;
+    } else if (isNote) {
+      const isTxt = node.path.toLowerCase().endsWith('.txt');
+      const defaultExt = isTxt ? 'txt' : 'md';
+      if (!finalFileName.toLowerCase().endsWith('.md') && !finalFileName.toLowerCase().endsWith('.txt')) {
+        finalFileName = `${finalFileName}.${defaultExt}`;
+      }
+    } else {
+      const lastDot = node.name.lastIndexOf('.');
+      const originalExt = lastDot > 0 ? node.name.slice(lastDot + 1) : '';
+      if (originalExt && !finalFileName.includes('.')) {
+        finalFileName = `${finalFileName}.${originalExt}`;
+      }
+    }
+
+    if (finalFileName === node.name) return;
+
+    const parts = node.path.split('/');
+    parts[parts.length - 1] = finalFileName;
+    const newPath = parts.join('/');
+
+    try {
+      await renameNode(node.path, newPath, isFolder);
+    } catch (err) {
+      console.error('Erro ao renomear item:', err);
     }
   };
 
@@ -1259,7 +1206,7 @@ export const VaultSidebar: React.FC = () => {
             </div>
           )}
 
-          <div className="flex items-center gap-2 truncate">
+          <div className={`flex gap-2 min-w-0 items-center ${renamingNodePath === node.path ? 'flex-1' : 'truncate'}`}>
             {isFolder ? (
               <span className="text-stone-400 dark:text-neutral-400">
                 {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
@@ -1284,11 +1231,21 @@ export const VaultSidebar: React.FC = () => {
               <FileText className="w-3.5 h-3.5 text-stone-400 dark:text-neutral-500 shrink-0" />
             )}
 
-            {isFolder && renamingFolderPath === node.path ? (
-              <InlineRenameFolderInput
-                initialName={node.name}
-                onSubmit={(newName) => handleRenameFolderSubmit(node.path, newName)}
-                onCancel={() => setRenamingFolderPath(null)}
+            {renamingNodePath === node.path ? (
+              <InlineRenameInput
+                initialName={
+                  isFolder
+                    ? node.name
+                    : (node.fileType === 'note' || (!node.fileType && (node.name.endsWith('.md') || node.name.endsWith('.txt'))))
+                      ? node.name.replace(/\.(md|txt)$/i, '')
+                      : (() => {
+                          const lastDot = node.name.lastIndexOf('.');
+                          return lastDot > 0 ? node.name.slice(0, lastDot) : node.name;
+                        })()
+                }
+                isFolder={isFolder}
+                onSubmit={(newName) => handleRenameNodeSubmit(node, newName)}
+                onCancel={() => setRenamingNodePath(null)}
               />
             ) : (
               <span className="truncate text-xs">
@@ -1305,18 +1262,11 @@ export const VaultSidebar: React.FC = () => {
           <div>
             {newFileInputFolder === node.path && (
               <div style={{ paddingLeft: `${(depth + 1) * 14 + 12}px` }} className="py-1 pr-2">
-                <input
-                  type="text"
-                  autoFocus
+                <InlineRenameInput
+                  initialName=""
                   placeholder="Nome da nota..."
-                  value={newFileName}
-                  onChange={(e) => setNewFileName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleCreateFileSubmit(node.path);
-                    if (e.key === 'Escape') setNewFileInputFolder(null);
-                  }}
-                  onBlur={() => handleCreateFileSubmit(node.path)}
-                  className="w-full bg-white dark:bg-[#16161D] border border-[#7F95FF]/60 rounded-md px-2 py-1 text-xs text-stone-900 dark:text-neutral-100 outline-none shadow-xs"
+                  onSubmit={(name) => handleCreateFileSubmit(node.path, name)}
+                  onCancel={() => setNewFileInputFolder(null)}
                 />
               </div>
             )}
@@ -1419,9 +1369,19 @@ export const VaultSidebar: React.FC = () => {
               defaultValue: c.name,
               confirmText: 'Salvar',
               icon: <Edit2 className="w-5 h-5 text-cyan-400" />,
-              onConfirm: (newName) => {
-                if (newName && newName.trim() && newName.trim() !== c.name) {
-                  updateLayer({ ...c, name: newName.trim() });
+              onConfirm: async (newName) => {
+                const trimmed = newName?.trim();
+                if (trimmed && trimmed !== c.name) {
+                  updateLayer({ ...c, name: trimmed });
+                  useVaultStore.getState().updateCanvasTitleInTabs(c.id, trimmed);
+                  if (c.canvasType === 'board') {
+                    await updateBoardNameInIDB(c.id, trimmed);
+                  }
+                  if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent('canvas_renamed', {
+                      detail: { canvasId: c.id, newName: trimmed }
+                    }));
+                  }
                 }
               }
             });
@@ -1444,7 +1404,11 @@ export const VaultSidebar: React.FC = () => {
           label: 'Nova Nota',
           icon: <FilePlus size={16} className="text-[#7F95FF]" />,
           onClick: async () => {
-            await createFile('');
+            try {
+              await createFile('');
+            } catch (err: unknown) {
+              console.warn('Criação de nota cancelada ou falhou:', err);
+            }
           }
         },
         {
@@ -1537,30 +1501,7 @@ export const VaultSidebar: React.FC = () => {
             label: 'Renomear Arquivo',
             icon: <Edit2 size={16} className="text-[#7F95FF]" />,
             onClick: () => {
-              const oldFileName = node.path.split('/').pop() || node.name;
-              const lastDot = oldFileName.lastIndexOf('.');
-              const originalExt = lastDot > 0 ? oldFileName.slice(lastDot + 1) : '';
-
-              setPromptModal({
-                title: 'Renomear Arquivo',
-                description: 'Digite o novo nome para o arquivo:',
-                defaultValue: node.name,
-                confirmText: 'Renomear',
-                icon: <Edit2 className="w-5 h-5 text-[#7F95FF]" />,
-                onConfirm: (newName) => {
-                  const trimmed = newName?.trim();
-                  if (trimmed && trimmed !== node.name) {
-                    let finalName = trimmed;
-                    // Se o usuário não digitou extensão e o arquivo original tinha extensão, preserva a extensão original
-                    if (originalExt && !finalName.includes('.')) {
-                      finalName = `${finalName}.${originalExt}`;
-                    }
-                    const parts = node.path.split('/');
-                    parts[parts.length - 1] = finalName;
-                    renameNode(node.path, parts.join('/'), false);
-                  }
-                }
-              });
+              setRenamingNodePath(node.path);
             }
           },
           {
@@ -1603,31 +1544,7 @@ export const VaultSidebar: React.FC = () => {
           label: 'Renomear Nota',
           icon: <Edit2 size={16} className="text-[#7F95FF]" />,
           onClick: () => {
-            const isTxt = node.path.toLowerCase().endsWith('.txt');
-            const defaultExt = isTxt ? 'txt' : 'md';
-            const currentName = node.name.replace(/\.(md|txt)$/i, '');
-
-            setPromptModal({
-              title: 'Renomear Nota',
-              description: 'Digite o novo nome para a nota:',
-              defaultValue: currentName,
-              confirmText: 'Renomear',
-              icon: <Edit2 className="w-5 h-5 text-[#7F95FF]" />,
-              onConfirm: (newName) => {
-                const trimmed = newName?.trim();
-                if (trimmed && trimmed !== currentName) {
-                  let finalName = trimmed;
-                  if (finalName.toLowerCase().endsWith('.md') || finalName.toLowerCase().endsWith('.txt')) {
-                    // Já possui extensão de nota válida
-                  } else {
-                    finalName = `${finalName}.${defaultExt}`;
-                  }
-                  const parts = node.path.split('/');
-                  parts[parts.length - 1] = finalName;
-                  renameNode(node.path, parts.join('/'), false);
-                }
-              }
-            });
+            setRenamingNodePath(node.path);
           }
         },
         {
@@ -1683,15 +1600,17 @@ export const VaultSidebar: React.FC = () => {
           label: 'Nova Nota nesta pasta',
           icon: <FilePlus size={16} className="text-[#7F95FF]" />,
           onClick: async () => {
-            toggleFolder(node.path);
-            await createFile(node.path);
+            try {
+              await createFile(node.path);
+            } catch (err: unknown) {
+              console.warn('Criação de nota nesta pasta cancelada ou falhou:', err);
+            }
           }
         },
         {
           label: 'Salvar Áudio ou Imagem nesta pasta',
           icon: <Upload size={16} className="text-cyan-400" />,
           onClick: () => {
-            toggleFolder(node.path);
             triggerMediaUpload(node.path);
           }
         },
@@ -1699,7 +1618,6 @@ export const VaultSidebar: React.FC = () => {
           label: 'Novo Canvas de Conexões nesta pasta',
           icon: <FolderKanban size={16} className="text-[#7F95FF]" />,
           onClick: () => {
-            toggleFolder(node.path);
             handleCreateBoardCanvas(node.path);
           }
         },
@@ -1707,7 +1625,6 @@ export const VaultSidebar: React.FC = () => {
           label: 'Novo Canvas de Áudio nesta pasta',
           icon: <Music size={16} className="text-cyan-400" />,
           onClick: () => {
-            toggleFolder(node.path);
             handleCreateAudioCanvas(node.path);
           }
         },
@@ -1722,7 +1639,7 @@ export const VaultSidebar: React.FC = () => {
           label: 'Renomear Pasta',
           icon: <Edit2 size={16} className="text-cyan-400" />,
           onClick: () => {
-            setRenamingFolderPath(node.path);
+            setRenamingNodePath(node.path);
           }
         },
         {
@@ -1802,18 +1719,11 @@ export const VaultSidebar: React.FC = () => {
         {/* Root level inputs */}
         {newFileInputFolder === '' && (
           <div className="py-1 px-2">
-            <input
-              type="text"
-              autoFocus
+            <InlineRenameInput
+              initialName=""
               placeholder="Nome da nota raiz..."
-              value={newFileName}
-              onChange={(e) => setNewFileName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleCreateFileSubmit('');
-                if (e.key === 'Escape') setNewFileInputFolder(null);
-              }}
-              onBlur={() => handleCreateFileSubmit('')}
-              className="w-full bg-white dark:bg-[#16161D] border border-[#7F95FF]/60 rounded-md px-2 py-1 text-xs text-stone-900 dark:text-neutral-100 outline-none shadow-xs"
+              onSubmit={(name) => handleCreateFileSubmit('', name)}
+              onCancel={() => setNewFileInputFolder(null)}
             />
           </div>
         )}
@@ -1828,7 +1738,101 @@ export const VaultSidebar: React.FC = () => {
           />
         )}
 
-        {filteredNodes.length === 0 && allCanvases.filter(c => c.folderPath === '' || c.folderPath === '__ROOT__').length === 0 ? (
+        {storageType === 'fsa' && !isConnected ? (
+          <div className="py-8 px-4 text-center flex flex-col items-center justify-center gap-3 animate-in fade-in duration-200">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500">
+              <HardDrive className="w-5 h-5" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-stone-800 dark:text-neutral-200">
+                Pasta Desconectada
+              </p>
+              <p className="text-[11px] text-stone-500 dark:text-neutral-400 max-w-[200px] mx-auto">
+                {hasSavedFolder
+                  ? 'Autorize o acesso à pasta física deste Vault para visualizar e criar notas.'
+                  : 'Vincule uma pasta física do Windows para visualizar e criar notas.'}
+              </p>
+              {reconnectError && (
+                <p className="text-[11px] text-amber-600 dark:text-amber-400 max-w-[220px] mx-auto mt-1">
+                  {reconnectError}
+                </p>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center justify-center gap-2 mt-1">
+              {hasSavedFolder ? (
+                <>
+                  <button
+                    disabled={isConnectingFolder}
+                    onClick={async () => {
+                      setReconnectError(null);
+                      setIsConnectingFolder(true);
+                      try {
+                        const ok = await connectFSA(vaultId, false);
+                        if (!ok) {
+                          setReconnectError('Permissão não concedida. Clique em "Escolher outra..." para vincular.');
+                        }
+                      } catch (err) {
+                        console.warn('Erro ao reconectar pasta:', err);
+                        setReconnectError('Erro ao reconectar. Tente selecionar novamente.');
+                      } finally {
+                        setIsConnectingFolder(false);
+                      }
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-[#1831D7] hover:bg-[#1831D7]/90 text-white text-xs font-medium transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                  >
+                    {isConnectingFolder ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <FolderSync className="w-3.5 h-3.5" />
+                    )}
+                    Reconectar Pasta
+                  </button>
+                  <button
+                    disabled={isConnectingFolder}
+                    onClick={async () => {
+                      setReconnectError(null);
+                      setIsConnectingFolder(true);
+                      try {
+                        await connectFSA(vaultId, true);
+                      } catch (err) {
+                        console.error('Erro ao escolher pasta:', err);
+                      } finally {
+                        setIsConnectingFolder(false);
+                      }
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-white/10 dark:hover:bg-white/15 text-stone-700 dark:text-neutral-200 text-xs font-medium transition-all cursor-pointer disabled:opacity-60"
+                    title="Selecionar outra pasta no computador"
+                  >
+                    Escolher outra...
+                  </button>
+                </>
+              ) : (
+                <button
+                  disabled={isConnectingFolder}
+                  onClick={async () => {
+                    setReconnectError(null);
+                    setIsConnectingFolder(true);
+                    try {
+                      await connectFSA(vaultId, true);
+                    } catch (err) {
+                      console.error('Erro ao escolher pasta:', err);
+                    } finally {
+                      setIsConnectingFolder(false);
+                    }
+                  }}
+                  className="px-3.5 py-1.5 rounded-lg bg-[#1831D7] hover:bg-[#1831D7]/90 text-white text-xs font-medium transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                >
+                  {isConnectingFolder ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <FolderPlus className="w-3.5 h-3.5" />
+                  )}
+                  Selecionar Pasta do Windows
+                </button>
+              )}
+            </div>
+          </div>
+        ) : filteredNodes.length === 0 && allCanvases.filter(c => c.folderPath === '' || c.folderPath === '__ROOT__').length === 0 ? (
           <div className="py-8 text-center text-stone-400 dark:text-neutral-500 text-xs">
             {searchQuery ? 'Nenhum resultado' : 'Pasta vazia. Crie uma nota ou canvas acima!'}
           </div>

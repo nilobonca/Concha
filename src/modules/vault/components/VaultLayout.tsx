@@ -87,6 +87,27 @@ export const VaultLayout: React.FC = () => {
     initializeStorage();
   }, [initializeStorage]);
 
+  // Auto-reconexão silenciosa no primeiro gesto do usuário caso a pasta FSA necessite de ativação de permissão
+  useEffect(() => {
+    const handleFirstInteraction = async () => {
+      const state = useVaultStore.getState();
+      if (state.storageType === 'fsa' && !state.isConnected) {
+        try {
+          await state.connectFSA(state.vaultId, false);
+        } catch (err) {
+          console.warn('[VaultLayout] Auto-reconexão no primeiro clique:', err);
+        }
+      }
+    };
+
+    window.addEventListener('click', handleFirstInteraction, { once: true, capture: true });
+    window.addEventListener('keydown', handleFirstInteraction, { once: true, capture: true });
+    return () => {
+      window.removeEventListener('click', handleFirstInteraction, { capture: true });
+      window.removeEventListener('keydown', handleFirstInteraction, { capture: true });
+    };
+  }, []);
+
   // Limpeza global de drag para evitar estados presos
   useEffect(() => {
     const handleGlobalDragEnd = () => {
@@ -99,6 +120,32 @@ export const VaultLayout: React.FC = () => {
       window.removeEventListener('dragend', handleGlobalDragEnd);
       window.removeEventListener('drop', handleGlobalDragEnd);
     };
+  }, []);
+
+  // Atalhos globais para abas: Ctrl+T (Nova Aba) e Ctrl+W (Fechar Aba Ativa)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+T ou Cmd+T: Nova Aba
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 't') {
+        e.preventDefault();
+        e.stopPropagation();
+        useVaultStore.getState().openNewTab();
+        return;
+      }
+
+      // Ctrl+W ou Cmd+W: Fechar Aba Ativa
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'w') {
+        const state = useVaultStore.getState();
+        if (state.activePaneId && state.activePath) {
+          e.preventDefault();
+          e.stopPropagation();
+          state.closeTabInPane(state.activePaneId, state.activePath);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   // Open note from URL parameter (e.g. from canvas pin click)

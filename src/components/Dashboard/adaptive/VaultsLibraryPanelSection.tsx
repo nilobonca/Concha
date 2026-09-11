@@ -66,12 +66,13 @@ export const VaultsLibraryPanelSection: React.FC<VaultsLibraryPanelSectionProps>
     }
   };
 
-  // Clique duplo (2x): Entra diretamente no editor do Vault (força picker para FSA se não conectado)
+  // Clique duplo (2x): Entra diretamente no editor do Vault
   const handleDoubleClickVault = async (vault: RegisteredVault) => {
     try {
-      if (vault.id !== activeVaultId) {
-        const success = await onSwitchVault(vault, true);
-        if (success === false) return;
+      if (vault.id !== activeVaultId || vault.storageType === 'fsa') {
+        if (onSwitchVault) {
+          await onSwitchVault(vault, false);
+        }
       }
       if (isElectron()) {
         setWindowMode('workspace');

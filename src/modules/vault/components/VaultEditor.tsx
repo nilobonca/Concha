@@ -8,10 +8,18 @@ import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
 import Highlight from '@tiptap/extension-highlight';
 import { MarkdownSyntaxReveal } from '../extensions/MarkdownSyntaxRevealExtension';
+import { FormattingShortcutsExtension } from '../extensions/FormattingShortcutsExtension';
+import { VaultBubbleMenu } from './VaultBubbleMenu';
 import { useVaultStore } from '../hooks/useVaultStore';
 import { saveUserTemplate } from '../utils/templateStore';
 import { markdownToHtml, htmlToMarkdown } from '../utils/markdownConverter';
 import { parseFrontmatter, stringifyFrontmatter } from '../utils/frontmatterUtils';
+import { 
+  sanitizeVaultFileName, 
+  WINDOWS_FORBIDDEN_CHARACTERS, 
+  WINDOWS_FORBIDDEN_CHARS_DISPLAY, 
+  stripInvalidWindowsChars 
+} from '../utils/fileNameUtils';
 import { VaultSourceEditor } from './VaultSourceEditor';
 import { VaultReadingView } from './VaultReadingView';
 import { Table, TableRow, TableCell, TableHeader } from '@tiptap/extension-table';
@@ -22,7 +30,7 @@ import {
   Code, FileText, Search, 
   Sparkles, ChevronUp, 
   ChevronDown, Replace, X, Eye,
-  FolderKanban, Music
+  FolderKanban, Music, AlertCircle
 } from 'lucide-react';
 import { useRouter } from 'next/router';
 import { useIDB } from '@/utils/indexedDB';
@@ -84,10 +92,26 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath }
   const activeContent = cachedDoc?.content ?? globalActiveContent;
 
   const [title, setTitle] = useState('');
+  const [titleWarning, setTitleWarning] = useState<string | null>(null);
+  const titleWarningTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const showTitleForbiddenWarning = () => {
+    if (titleWarningTimerRef.current) {
+      clearTimeout(titleWarningTimerRef.current);
+    }
+    setTitleWarning(WINDOWS_FORBIDDEN_CHARS_DISPLAY);
+    titleWarningTimerRef.current = setTimeout(() => {
+      setTitleWarning(null);
+      titleWarningTimerRef.current = null;
+    }, 3500);
+  };
+
   const [templateSuccess, setTemplateSuccess] = useState(false);
   const [templatePromptOpen, setTemplatePromptOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const isUpdatingFromStoreRef = useRef(false);
+  const currentLoadedPathRef = useRef<string | null>(null);
+  const prevViewModeRef = useRef(viewMode);
 
   // In-Note Search & Replace state (controlled via store)
   const searchOpen = isNoteSearchOpen;
@@ -140,17 +164,25 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath }
     const trimmed = title.trim();
     if (trimmed && activePath) {
       const currentFileName = activePath.split('/').pop()?.replace(/\.(md|txt)$/i, '') || '';
-      if (trimmed !== currentFileName) {
+      const rawBase = trimmed.replace(/\.(md|txt)$/i, '');
+      const cleanBase = sanitizeVaultFileName(rawBase, false) || currentFileName || 'Sem título';
+
+      if (cleanBase !== currentFileName) {
         const parts = activePath.split('/');
         const isTxt = activePath.toLowerCase().endsWith('.txt');
         const defaultExt = isTxt ? 'txt' : 'md';
-        let finalName = trimmed;
-        if (!finalName.toLowerCase().endsWith('.md') && !finalName.toLowerCase().endsWith('.txt')) {
-          finalName = `${finalName}.${defaultExt}`;
-        }
+        const finalName = `${cleanBase}.${defaultExt}`;
         parts[parts.length - 1] = finalName;
-        await renameNode(activePath, parts.join('/'), false);
-        setTitle(finalName.replace(/\.(md|txt)$/i, ''));
+        const targetPath = parts.join('/');
+        try {
+          await renameNode(activePath, targetPath, false);
+          setTitle(cleanBase);
+        } catch (err) {
+          console.error('Erro ao renomear nota via título:', err);
+          setTitle(currentFileName);
+        }
+      } else {
+        setTitle(cleanBase);
       }
     }
   };
@@ -347,10 +379,11 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath }
         lowlight,
       }),
       MarkdownSyntaxReveal,
+      FormattingShortcutsExtension,
     ],
     editorProps: {
       attributes: {
-        class: 'prose prose-invert max-w-none focus:outline-none min-h-[500px] text-neutral-200 leading-relaxed text-base font-normal',
+        class: 'prose dark:prose-invert max-w-none focus:outline-none min-h-[500px] text-stone-900 dark:text-neutral-100 leading-relaxed text-base font-normal',
       },
       handleKeyDown: (view, event) => {
         // 1. Slash command navigation (/)
@@ -612,15 +645,37 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath }
     }
   }, [documentPath, documentCache, loadDocumentContent]);
 
-  // Sync content when active document changes
+  // Sincroniza o conteúdo quando o documento ativo muda ou ao alternar modos de visualização
   useEffect(() => {
-    if (!editor) return;
-    if (activeContent !== editor.getHTML()) {
+    if (!editor || !activePath) return;
+
+    const hasPathChanged = currentLoadedPathRef.current !== activePath;
+    const switchedFromSource = prevViewModeRef.current === 'source' && viewMode === 'live';
+    prevViewModeRef.current = viewMode;
+
+    // 1. Mudança de arquivo (trocou de aba ou selecionou outra nota na barra lateral)
+    // ou retorno do modo código/fonte para live
+    if (hasPathChanged || switchedFromSource) {
+      currentLoadedPathRef.current = activePath;
       isUpdatingFromStoreRef.current = true;
       editor.commands.setContent(activeContent || '');
       isUpdatingFromStoreRef.current = false;
+      return;
     }
-  }, [activePath, activeContent, editor]);
+
+    // 2. Se for o mesmo documento, NUNCA sobrescreve se o editor estiver com foco (usuário digitando).
+    // O editor ativo é a fonte primária da verdade e emite onUpdate para a store.
+    if (editor.isFocused) {
+      return;
+    }
+
+    // 3. Caso o editor esteja vazio e o conteúdo assíncrono acabou de carregar do disco pela primeira vez
+    if (editor.isEmpty && activeContent && activeContent !== '<p></p>') {
+      isUpdatingFromStoreRef.current = true;
+      editor.commands.setContent(activeContent);
+      isUpdatingFromStoreRef.current = false;
+    }
+  }, [activePath, activeContent, editor, viewMode]);
 
   // Compute search matches whenever doc or searchTerm or caseSensitive changes
   useEffect(() => {
@@ -964,26 +1019,66 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath }
                 {title || 'Sem título'}
               </h1>
             ) : (
-              <input
-                type="text"
-                placeholder="Sem título"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                onBlur={handleSaveTitle}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleSaveTitle();
-                    editor?.commands.focus('start');
-                  }
-                }}
-                className="w-full text-3xl sm:text-4xl font-extrabold tracking-tight text-stone-900 dark:text-neutral-100 placeholder-stone-300 dark:placeholder-neutral-700 bg-transparent outline-none border-none p-0 focus:ring-0 leading-tight selection:bg-[#1831D7]/20"
-              />
+              <div className="flex flex-col w-full">
+                <input
+                  type="text"
+                  placeholder="Sem título"
+                  value={title}
+                  onChange={(e) => {
+                    const { clean, hadInvalid } = stripInvalidWindowsChars(e.target.value);
+                    if (hadInvalid) {
+                      showTitleForbiddenWarning();
+                    }
+                    setTitle(clean);
+                  }}
+                  onBeforeInput={(e: React.FormEvent<HTMLInputElement> & { data?: string }) => {
+                    if (e.data && /[<>:"/\\|?*\x00-\x1f\x7f]/.test(e.data)) {
+                      e.preventDefault();
+                      showTitleForbiddenWarning();
+                    }
+                  }}
+                  onBlur={handleSaveTitle}
+                  onKeyDown={(e) => {
+                    if ((WINDOWS_FORBIDDEN_CHARACTERS as readonly string[]).includes(e.key)) {
+                      e.preventDefault();
+                      showTitleForbiddenWarning();
+                      return;
+                    }
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleSaveTitle();
+                      editor?.commands.focus('start');
+                    }
+                  }}
+                  className="w-full text-3xl sm:text-4xl font-extrabold tracking-tight text-stone-900 dark:text-neutral-100 placeholder-stone-400 dark:placeholder-neutral-600 bg-transparent outline-none border-none p-0 focus:ring-0 leading-tight selection:bg-[#1831D7]/20"
+                />
+
+                {titleWarning && (
+                  <div 
+                    className="mt-2 flex items-start gap-2 p-2.5 bg-amber-50 dark:bg-[#1C1814] text-stone-900 dark:text-neutral-100 border border-amber-500/50 rounded-lg text-xs shadow-md w-max max-w-[340px] leading-snug select-none"
+                    role="alert"
+                  >
+                    <AlertCircle className="w-4 h-4 text-amber-500 dark:text-amber-400 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="font-semibold text-amber-700 dark:text-amber-300 text-xs">Caractere não permitido</div>
+                      <div className="text-[11px] text-stone-600 dark:text-neutral-300 mt-0.5">
+                        O título do arquivo não pode conter:
+                      </div>
+                      <div className="font-mono font-bold text-amber-700 dark:text-amber-300 mt-1 tracking-widest bg-amber-500/10 dark:bg-black/50 border border-amber-500/20 px-2 py-0.5 rounded text-center text-xs">
+                        \ / : * ? &quot; &lt; &gt; |
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
           </div>
 
           {viewMode === 'live' && (
-            <EditorContent editor={editor} />
+            <>
+              <VaultBubbleMenu editor={editor} />
+              <EditorContent editor={editor} />
+            </>
           )}
 
           {viewMode === 'source' && (

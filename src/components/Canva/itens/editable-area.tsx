@@ -177,7 +177,7 @@ export default function EditableArea({ area, onUpdate, isSelected, onSelect, onR
             event.stopPropagation();
 
             if (tap) {
-                const isCtrlPressed = (event as any).ctrlKey || (event as any).metaKey;
+                const isCtrlPressed = (event as any).ctrlKey || (event as any).metaKey || (event as any).shiftKey;
                 if (selectedAtMouseDown.current) {
                     if (isCtrlPressed) {
                         if (onSelect) onSelect(event as any);

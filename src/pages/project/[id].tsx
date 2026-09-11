@@ -88,9 +88,12 @@ export default function ProjectCanvas() {
       targetY = window.innerHeight / 2 - 70;
     }
 
+    const noteTitle = note.name ? note.name.replace(/\.(md|txt)$/i, '') : (note.path ? note.path.split('/').pop()?.replace(/\.(md|txt)$/i, '') : 'Nota');
+
     const newNote: ActiveNote = {
       id: uuidv4(),
       type: 'note',
+      title: noteTitle || 'Nota',
       content: content || '',
       position: { x: targetX, y: targetY },
       width: 260,
@@ -343,6 +346,7 @@ export default function ProjectCanvas() {
                 handleAreaDrag={(id: string, totalDx: number, totalDy: number) => core.itemHandlers.handleAreaDrag(id, totalDx as any, totalDy as any)}
                 setRenamingAreaId={core.selection.setRenamingAreaId}
                 handlePinDrag={(id: string, x: number, y: number, isDragging?: boolean) => core.itemHandlers.handlePinDrag(id, x, y, isDragging ?? false)}
+                handleNoteDrag={core.itemHandlers.handleNoteDrag}
                 updateNotePersisted={core.idb.updateNotePersisted}
                 deleteNotePersisted={core.idb.deleteNotePersisted}
                 updateSoundboardItemPersisted={core.idb.updateSoundboardItemPersisted}

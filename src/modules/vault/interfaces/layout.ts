@@ -2,7 +2,7 @@ export interface VaultTab {
   path: string;
   title: string;
   isDirty?: boolean;
-  type?: 'markdown' | 'canvas' | 'audio' | 'image';
+  type?: 'markdown' | 'canvas' | 'audio' | 'image' | 'empty';
   canvasId?: string;
   fileType?: 'audio' | 'image' | 'note';
 }

@@ -155,7 +155,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           "flex items-center gap-3 px-3.5 py-2.5 w-full rounded-xl transition-all text-sm font-medium",
           isActive 
             ? (isLight ? "bg-[#1831D7]/15 text-[#1831D7] font-semibold shadow-xs" : "bg-white/10 text-white font-semibold")
-            : (isLight ? "text-stone-500 hover:text-stone-900 hover:bg-stone-100/60" : "text-neutral-400 hover:text-white hover:bg-white/5")
+            : (isLight ? "text-stone-600 hover:text-stone-900 hover:bg-stone-100/60" : "text-neutral-400 hover:text-white hover:bg-white/5")
         )}
       >
         {icon}
@@ -168,10 +168,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     <div className="space-y-8">
       <div>
         <div className="flex items-center justify-between mb-4">
-          <h3 className={clsx("text-sm font-semibold tracking-wide uppercase", isLight ? "text-stone-500" : "text-neutral-400")}>
+          <h3 className={clsx("text-sm font-semibold tracking-wide uppercase", isLight ? "text-stone-700" : "text-neutral-400")}>
             Atmosfera de Tema
           </h3>
-          <span className="text-xs text-[#6B6864] dark:text-[#9E9EA8]">
+          <span className="text-xs text-stone-600 dark:text-[#9E9EA8] font-medium">
             Selecione a paleta visual ideal para seu ambiente
           </span>
         </div>
@@ -231,7 +231,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             <span className="font-semibold text-stone-900 dark:text-white flex items-center gap-1.5 text-sm">
               ☀️ Modo Claro Oficial
             </span>
-            <span className="text-xs text-stone-500 dark:text-neutral-400 mt-0.5 leading-relaxed">
+            <span className="text-xs text-stone-600 dark:text-neutral-400 mt-0.5 leading-relaxed font-medium">
               Marfim aquecido (#F4F0E6), superfícies brancas e tipografia em azul meia-noite (#17192A).
             </span>
             {theme === 'light' && <div className="absolute top-4 right-4 text-[#1831D7] dark:text-[#7F95FF]"><Check size={18} /></div>}
@@ -240,14 +240,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       </div>
 
       <div>
-        <h3 className="mb-4 text-sm font-semibold tracking-wide uppercase text-stone-500 dark:text-neutral-400">
+        <h3 className={clsx("mb-4 text-sm font-semibold tracking-wide uppercase", isLight ? "text-stone-600" : "text-neutral-400")}>
           Efeito Visual de Áudio
         </h3>
         <div className="p-4 border border-stone-200 dark:border-white/10 bg-stone-50/50 dark:bg-white/5 rounded-[1.5rem] transition-all duration-300 space-y-5">
           <div className="flex items-center justify-between">
             <div>
-              <div className="font-medium text-sm text-neutral-200">Brilho nas Bordas</div>
-              <div className="text-xs text-neutral-500">Tela pulsa com o ritmo da música</div>
+              <div className={clsx("font-medium text-sm", isLight ? "text-stone-900" : "text-neutral-200")}>Brilho nas Bordas</div>
+              <div className={clsx("text-xs", isLight ? "text-stone-600" : "text-neutral-400")}>Tela pulsa com o ritmo da música</div>
             </div>
             <button
               onClick={() => setAudioVizEnabled(!audioVizEnabled)}
@@ -264,8 +264,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           </div>
           <div className="flex items-center justify-between">
             <div>
-              <div className="font-medium text-sm text-neutral-200">Ondas nas Áreas</div>
-              <div className="text-xs text-neutral-500">Ondas sonoras emanam do centro das áreas ativas</div>
+              <div className={clsx("font-medium text-sm", isLight ? "text-stone-900" : "text-neutral-200")}>Ondas nas Áreas</div>
+              <div className={clsx("text-xs", isLight ? "text-stone-600" : "text-neutral-400")}>Ondas sonoras emanam do centro das áreas ativas</div>
             </div>
             <button
               onClick={() => setAreaRippleEnabled(!areaRippleEnabled)}
@@ -284,8 +284,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             <>
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="font-medium text-sm text-neutral-200">Cor do Efeito</div>
-                  <div className="text-xs text-neutral-500">Escolha a cor do brilho</div>
+                  <div className={clsx("font-medium text-sm", isLight ? "text-stone-900" : "text-neutral-200")}>Cor do Efeito</div>
+                  <div className={clsx("text-xs", isLight ? "text-stone-600" : "text-neutral-400")}>Escolha a cor do brilho</div>
                 </div>
                 <div className="flex items-center gap-2">
                   {['#7F95FF', '#52B1FF', '#1831D7', '#B4D3F1', '#17192A'].map(color => (
@@ -311,10 +311,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <div>
-                    <div className="font-medium text-sm text-neutral-200">Intensidade</div>
-                    <div className="text-xs text-neutral-500">Controla o tamanho e força do brilho</div>
+                    <div className={clsx("font-medium text-sm", isLight ? "text-stone-900" : "text-neutral-200")}>Intensidade</div>
+                    <div className={clsx("text-xs", isLight ? "text-stone-600" : "text-neutral-400")}>Controla o tamanho e força do brilho</div>
                   </div>
-                  <span className="text-xs font-mono text-neutral-400">{Math.round(audioVizIntensity * 100)}%</span>
+                  <span className={clsx("text-xs font-mono", isLight ? "text-stone-700 font-semibold" : "text-neutral-400")}>{Math.round(audioVizIntensity * 100)}%</span>
                 </div>
                 <input
                   type="range"
@@ -329,7 +329,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 className="relative h-16 rounded-xl overflow-hidden border border-white/10"
                 style={{ boxShadow: `inset 0 0 80px ${audioVizColor}88`, backgroundColor: '#0a0a0a' }}
               >
-                <div className="absolute inset-0 flex items-center justify-center text-xs text-neutral-500">
+                <div className="absolute inset-0 flex items-center justify-center text-xs text-neutral-400">
                   Prévia do efeito
                 </div>
               </div>
@@ -345,14 +345,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       <AppUpdateSettingsSection />
 
       <div>
-        <h3 className={clsx("mb-4 text-sm font-semibold tracking-wide uppercase", isLight ? "text-stone-500" : "text-[#B4D3F1]/80")}>
+        <h3 className={clsx("mb-4 text-sm font-semibold tracking-wide uppercase", isLight ? "text-stone-700" : "text-[#B4D3F1]/80")}>
           Geral
         </h3>
         <div className={clsx("p-4 border", isLight ? "border-stone-200 bg-stone-50/70 rounded-xl" : "border-[#7F95FF]/15 bg-[#17192A]/50 rounded-xl")}>
           <div className="flex items-center justify-between">
             <div className="pr-4">
               <h4 className={clsx("font-medium", isLight ? "text-stone-800" : "text-[#F4F0E6]")}>Modo Preview</h4>
-              <p className={clsx("text-sm mt-1", isLight ? "text-stone-500" : "text-neutral-400")}>
+              <p className={clsx("text-sm mt-1", isLight ? "text-stone-600 font-medium" : "text-neutral-400")}>
                 Faça alterações no mapa sem afetar o que os jogadores veem.
               </p>
             </div>
@@ -376,7 +376,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
       {currentProjectId && (
         <div>
-          <h3 className={clsx("mb-4 text-sm font-semibold tracking-wide uppercase", isLight ? "text-stone-500" : "text-[#B4D3F1]/80")}>
+          <h3 className={clsx("mb-4 text-sm font-semibold tracking-wide uppercase", isLight ? "text-stone-700" : "text-[#B4D3F1]/80")}>
             Logs da Sessão
           </h3>
           <button
@@ -402,7 +402,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const renderBackupTab = () => (
     <div className="space-y-8">
       <div>
-        <h3 className={clsx("mb-4 text-sm font-semibold tracking-wide uppercase", isLight ? "text-stone-500" : "text-[#B4D3F1]/80")}>
+        <h3 className={clsx("mb-4 text-sm font-semibold tracking-wide uppercase", isLight ? "text-stone-700" : "text-[#B4D3F1]/80")}>
           Exportação e Backup
         </h3>
         <div className="flex gap-4">
@@ -504,7 +504,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               <div className="flex items-center justify-between">
                 <div className="pr-4">
                   <h4 className={clsx("font-medium", isLight ? "text-stone-800" : "text-neutral-200")}>Desafio de Cliques</h4>
-                  <p className={clsx("text-sm mt-1", isLight ? "text-stone-500" : "text-neutral-400")}>
+                  <p className={clsx("text-sm mt-1", isLight ? "text-stone-600 font-medium" : "text-neutral-400")}>
                     Inicie um minigame onde os jogadores devem clicar rapidamente para atingir uma meta.
                   </p>
                 </div>
@@ -529,7 +529,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 </button>
               </div>
               <div className="flex items-center justify-between pt-4 border-t border-neutral-800 dark:border-white/10">
-                <div className={clsx("text-sm", isLight ? "text-stone-500" : "text-neutral-400")}>Fixar botão no menu lateral</div>
+                <div className={clsx("text-sm font-medium", isLight ? "text-stone-700" : "text-neutral-400")}>Fixar botão no menu lateral</div>
                 <button
                   onClick={() => useThemeStore.getState().togglePinnedMinigame('clicker')}
                   className={clsx(
@@ -552,7 +552,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               <div className="flex items-center justify-between">
                 <div className="pr-4">
                   <h4 className={clsx("font-medium", isLight ? "text-stone-800" : "text-neutral-200")}>Cara ou Coroa</h4>
-                  <p className={clsx("text-sm mt-1", isLight ? "text-stone-500" : "text-neutral-400")}>
+                  <p className={clsx("text-sm mt-1", isLight ? "text-stone-600 font-medium" : "text-neutral-400")}>
                     Gire uma moeda 3D em tempo real. Você pode predefinir ou forçar o resultado.
                   </p>
                 </div>
@@ -577,7 +577,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 </button>
               </div>
               <div className="flex items-center justify-between pt-4 border-t border-neutral-800 dark:border-white/10">
-                <div className={clsx("text-sm", isLight ? "text-stone-500" : "text-neutral-400")}>Fixar botão no menu lateral</div>
+                <div className={clsx("text-sm font-medium", isLight ? "text-stone-700" : "text-neutral-400")}>Fixar botão no menu lateral</div>
                 <button
                   onClick={() => useThemeStore.getState().togglePinnedMinigame('coin_flip')}
                   className={clsx(
@@ -616,7 +616,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               <div className="flex items-center justify-between">
                 <div className="pr-4">
                   <h4 className={clsx("font-medium", isLight ? "text-stone-800" : "text-neutral-200")}>Distribuição de Cartas</h4>
-                  <p className={clsx("text-sm mt-1", isLight ? "text-stone-500" : "text-neutral-400")}>
+                  <p className={clsx("text-sm mt-1", isLight ? "text-stone-600 font-medium" : "text-neutral-400")}>
                     Exiba cartas personalizadas para os ouvintes, com opções de face inicial e revelação (secreta ou pública).
                   </p>
                 </div>
@@ -641,7 +641,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 </button>
               </div>
               <div className="flex items-center justify-between pt-4 border-t border-neutral-800 dark:border-white/10">
-                <div className={clsx("text-sm", isLight ? "text-stone-500" : "text-neutral-400")}>Fixar botão no menu lateral</div>
+                <div className={clsx("text-sm font-medium", isLight ? "text-stone-700" : "text-neutral-400")}>Fixar botão no menu lateral</div>
                 <button
                   onClick={() => useThemeStore.getState().togglePinnedMinigame('cards')}
                   className={clsx(
@@ -680,7 +680,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               <div className="flex items-center justify-between">
                 <div className="pr-4">
                   <h4 className={clsx("font-medium", isLight ? "text-stone-800" : "text-neutral-200")}>Decodificador de Fechaduras</h4>
-                  <p className={clsx("text-sm mt-1", isLight ? "text-stone-500" : "text-neutral-400")}>
+                  <p className={clsx("text-sm mt-1", isLight ? "text-stone-600 font-medium" : "text-neutral-400")}>
                     Desafio tátil em 2 fases: sintonize o tremor da agulha para achar o ponto secreto e gire o cilindro como chave!
                   </p>
                 </div>
@@ -705,7 +705,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 </button>
               </div>
               <div className="flex items-center justify-between pt-4 border-t border-neutral-800 dark:border-white/10">
-                <div className={clsx("text-sm", isLight ? "text-stone-500" : "text-neutral-400")}>Fixar botão no menu lateral</div>
+                <div className={clsx("text-sm font-medium", isLight ? "text-stone-700" : "text-neutral-400")}>Fixar botão no menu lateral</div>
                 <button
                   onClick={() => useThemeStore.getState().togglePinnedMinigame('dial_lock')}
                   className={clsx(
@@ -747,7 +747,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             onClick={onClose}
             className={clsx(
               "p-2 rounded-full transition-colors",
-              isLight ? "hover:bg-stone-100 text-stone-500 hover:text-stone-900" : "hover:bg-white/10 text-neutral-400 hover:text-white"
+              isLight ? "hover:bg-stone-200 text-stone-600 hover:text-stone-900" : "hover:bg-white/10 text-neutral-400 hover:text-white"
             )}
           >
             <X size={20} />

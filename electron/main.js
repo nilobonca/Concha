@@ -1,14 +1,93 @@
-const { app, BrowserWindow, ipcMain, globalShortcut, dialog, shell, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, globalShortcut, dialog, shell, Menu, session } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
 
+// Ensure app name is 'Concha' so userData path is consistently %APPDATA%\Concha across dev and prod
+app.name = 'Concha';
+
+// Enforce single instance lock to avoid port collision and multiple windows
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  console.log('[RPGSA Electron] Another instance of Concha is already running. Quitting.');
+  app.quit();
+  process.exit(0);
+}
+
+app.on('second-instance', () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+});
+
 const isDev = !app.isPackaged && process.env.NODE_ENV !== 'production';
 let mainWindow = null;
 let localServer = null;
 let wasMaximizedBeforeLauncher = false;
+
+// Fixed deterministic production port to guarantee persistent origin (localStorage & IndexedDB) across app updates
+const PRODUCTION_PORT = 32188;
+
+// Automatically migrate existing IndexedDB data from previous ephemeral ports to the new fixed port
+function migrateIndexedDBIfNeeded(targetPort) {
+  try {
+    const idbDir = path.join(app.getPath('userData'), 'IndexedDB');
+    if (!fs.existsSync(idbDir)) return;
+
+    const targetFolder = `http_127.0.0.1_${targetPort}.indexeddb.leveldb`;
+    const targetPath = path.join(idbDir, targetFolder);
+
+    // If target directory already exists and has populated files (more than just LOCK), no migration needed
+    if (fs.existsSync(targetPath)) {
+      const files = fs.readdirSync(targetPath);
+      if (files.filter(f => f !== 'LOCK').length > 0) {
+        console.log(`[RPGSA Electron] Target IndexedDB folder ${targetFolder} already populated.`);
+        return;
+      }
+    }
+
+    // Find all old http_127.0.0.1_<port>.indexeddb.leveldb folders
+    const entries = fs.readdirSync(idbDir, { withFileTypes: true });
+    const oldFolders = entries
+      .filter(d => d.isDirectory() && d.name.startsWith('http_127.0.0.1_') && d.name.endsWith('.indexeddb.leveldb') && d.name !== targetFolder)
+      .map(d => {
+        const fullPath = path.join(idbDir, d.name);
+        const stats = fs.statSync(fullPath);
+        return { name: d.name, path: fullPath, mtime: stats.mtime.getTime() };
+      })
+      .sort((a, b) => b.mtime - a.mtime); // newest first
+
+    if (oldFolders.length === 0) {
+      console.log('[RPGSA Electron] No previous IndexedDB folder found to migrate.');
+      return;
+    }
+
+    const sourceFolder = oldFolders[0];
+    console.log(`[RPGSA Electron] Migrating IndexedDB from ${sourceFolder.name} to ${targetFolder}...`);
+
+    if (!fs.existsSync(targetPath)) {
+      fs.mkdirSync(targetPath, { recursive: true });
+    }
+
+    const sourceFiles = fs.readdirSync(sourceFolder.path);
+    for (const file of sourceFiles) {
+      if (file === 'LOCK') continue; // Don't copy stale lock
+      const src = path.join(sourceFolder.path, file);
+      const dst = path.join(targetPath, file);
+      try {
+        fs.copyFileSync(src, dst);
+      } catch (copyErr) {
+        console.warn(`[RPGSA Electron] Failed copying IDB file ${file}:`, copyErr);
+      }
+    }
+    console.log(`[RPGSA Electron] IndexedDB migration to ${targetFolder} completed successfully.`);
+  } catch (err) {
+    console.error('[RPGSA Electron] Error during IndexedDB migration:', err);
+  }
+}
 
 async function startProductionServer() {
   const next = require('next');
@@ -18,19 +97,65 @@ async function startProductionServer() {
 
   await nextApp.prepare();
 
+  // Try using preferred production port (32188) to guarantee persistent origin across updates
+  let portToUse = PRODUCTION_PORT;
+  try {
+    const portFilePath = path.join(app.getPath('userData'), 'server_port.json');
+    if (fs.existsSync(portFilePath)) {
+      const saved = JSON.parse(fs.readFileSync(portFilePath, 'utf-8'));
+      if (saved && typeof saved.port === 'number') {
+        portToUse = saved.port;
+      }
+    }
+  } catch (e) {
+    console.warn('[RPGSA Electron] Failed reading saved port:', e);
+  }
+
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
       handle(req, res);
     });
 
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address();
-      const port = typeof address === 'string' ? 3000 : address.port;
-      console.log(`[RPGSA Electron] Production Next.js server running on port ${port}`);
-      resolve({ server, port });
+    const tryListen = (port) => {
+      server.listen(port, '127.0.0.1', () => {
+        const address = server.address();
+        const finalPort = typeof address === 'string' ? port : address.port;
+        console.log(`[RPGSA Electron] Production Next.js server running on port ${finalPort}`);
+        try {
+          fs.writeFileSync(
+            path.join(app.getPath('userData'), 'server_port.json'),
+            JSON.stringify({ port: finalPort }, null, 2),
+            'utf-8'
+          );
+        } catch {}
+        migrateIndexedDBIfNeeded(finalPort);
+        resolve({ server, port: finalPort });
+      });
+    };
+
+    server.once('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.warn(`[RPGSA Electron] Port ${portToUse} in use, trying dynamic port fallback...`);
+        server.listen(0, '127.0.0.1', () => {
+          const address = server.address();
+          const finalPort = typeof address === 'string' ? 3000 : address.port;
+          console.log(`[RPGSA Electron] Fallback server running on port ${finalPort}`);
+          try {
+            fs.writeFileSync(
+              path.join(app.getPath('userData'), 'server_port.json'),
+              JSON.stringify({ port: finalPort }, null, 2),
+              'utf-8'
+            );
+          } catch {}
+          migrateIndexedDBIfNeeded(finalPort);
+          resolve({ server, port: finalPort });
+        });
+      } else {
+        reject(err);
+      }
     });
 
-    server.on('error', reject);
+    tryListen(portToUse);
   });
 }
 
@@ -236,6 +361,115 @@ ipcMain.handle('set-window-mode', (event, mode) => {
     console.error('[RPGSA Electron] Failed to set window mode:', err);
     return false;
   }
+});
+
+// ===================================================
+// Vaults Registry Persistence & Old Version Recovery
+// ===================================================
+const VAULTS_FILE_NAME = 'vaults-registry.json';
+
+function getVaultsFilePath() {
+  return path.join(app.getPath('userData'), VAULTS_FILE_NAME);
+}
+
+// Scans LevelDB logs from previous ephemeral port runs to recover any vaults registered in earlier updates
+function recoverVaultsFromLevelDB() {
+  try {
+    const leveldbDir = path.join(app.getPath('userData'), 'Local Storage', 'leveldb');
+    if (!fs.existsSync(leveldbDir)) return null;
+
+    const files = fs.readdirSync(leveldbDir).filter(f => f.endsWith('.log') || f.endsWith('.ldb'));
+    const vaultMap = new Map();
+
+    for (const f of files) {
+      try {
+        const filePath = path.join(leveldbDir, f);
+        const content = fs.readFileSync(filePath, 'latin1');
+        const regex = /rpgsa_registered_vaults[^\x5b]*(\[\s*\{.*?\}\s*\])/g;
+        let match;
+        while ((match = regex.exec(content)) !== null) {
+          try {
+            const parsed = JSON.parse(match[1]);
+            if (Array.isArray(parsed)) {
+              for (const v of parsed) {
+                if (!v || !v.id) continue;
+                const existing = vaultMap.get(v.id);
+                if (!existing || (v.updatedAt || 0) >= (existing.updatedAt || 0)) {
+                  vaultMap.set(v.id, v);
+                }
+              }
+            }
+          } catch {}
+        }
+      } catch {}
+    }
+
+    const recoveredList = Array.from(vaultMap.values());
+    if (recoveredList.length > 0) {
+      console.log(`[RPGSA Electron] Successfully recovered ${recoveredList.length} vault(s) from previous LevelDB logs:`, recoveredList.map(v => v.name));
+      return recoveredList;
+    }
+  } catch (err) {
+    console.warn('[RPGSA Electron] Failed recovering vaults from LevelDB:', err);
+  }
+  return null;
+}
+
+function loadVaultsFromDisk() {
+  const filePath = getVaultsFilePath();
+  try {
+    if (fs.existsSync(filePath)) {
+      const raw = fs.readFileSync(filePath, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (parsed && Array.isArray(parsed.vaults) && parsed.vaults.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (err) {
+    console.error('[RPGSA Electron] Error reading vaults-registry.json:', err);
+  }
+
+  // Fallback: Recover from old LevelDB logs if available
+  const recovered = recoverVaultsFromLevelDB();
+  if (recovered && recovered.length > 0) {
+    const activeVault = recovered.find(v => !v.isDefault) || recovered[0];
+    const data = {
+      vaults: recovered,
+      activeVaultId: activeVault?.id || 'default-vault'
+    };
+    saveVaultsToDisk(data);
+    return data;
+  }
+
+  return null;
+}
+
+function saveVaultsToDisk(data) {
+  const filePath = getVaultsFilePath();
+  try {
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    const tempPath = `${filePath}.tmp`;
+    fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), 'utf-8');
+    fs.renameSync(tempPath, filePath);
+    return true;
+  } catch (err) {
+    console.error('[RPGSA Electron] Error saving vaults-registry.json:', err);
+    return false;
+  }
+}
+
+ipcMain.handle('load-vaults-registry', async () => {
+  return loadVaultsFromDisk();
+});
+
+ipcMain.handle('save-vaults-registry', async (event, data) => {
+  if (!data || !Array.isArray(data.vaults)) {
+    return false;
+  }
+  return saveVaultsToDisk(data);
 });
 
 // ==========================================
@@ -461,6 +695,21 @@ ipcMain.handle('quit-and-install', () => {
 });
 
 app.whenReady().then(async () => {
+  // Grant permanent permissions for FSA (File System Access) and media in Electron
+  try {
+    if (session && session.defaultSession) {
+      session.defaultSession.setPermissionCheckHandler(() => true);
+      session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
+        callback(true);
+      });
+      if (typeof session.defaultSession.setDevicePermissionHandler === 'function') {
+        session.defaultSession.setDevicePermissionHandler(() => true);
+      }
+    }
+  } catch (err) {
+    console.warn('[RPGSA Electron] Failed setting session permission handlers:', err);
+  }
+
   await createWindow();
 
   // Check for updates shortly after launch

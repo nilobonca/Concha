@@ -138,13 +138,13 @@ export const CanvasesQuickPanelSection: React.FC<CanvasesQuickPanelSectionProps>
           SEARCH FIELD
           ============================================================ */}
       <div className="shrink-0 relative">
-        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 dark:text-neutral-500" />
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-500 dark:text-neutral-500" />
         <input
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Buscar por nome, id ou pasta..."
-          className="w-full bg-black/[0.03] dark:bg-white/[0.04] border border-black/[0.08] dark:border-white/[0.08] rounded-xl pl-8 pr-8 py-1.5 text-xs text-stone-900 dark:text-white placeholder-stone-400 dark:placeholder-neutral-500 outline-none focus:border-[#7F95FF] transition-colors"
+          className="w-full bg-black/[0.03] dark:bg-white/[0.04] border border-black/[0.08] dark:border-white/[0.08] rounded-xl pl-8 pr-8 py-1.5 text-xs text-stone-900 dark:text-white placeholder-stone-500 dark:placeholder-neutral-500 outline-none focus:border-[#7F95FF] transition-colors"
         />
         {searchQuery && (
           <button
@@ -166,7 +166,7 @@ export const CanvasesQuickPanelSection: React.FC<CanvasesQuickPanelSectionProps>
             "flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer",
             tabMode === 'by-vault'
               ? "bg-white dark:bg-[#1C1C28] text-stone-900 dark:text-white shadow-xs"
-              : "text-stone-500 hover:text-stone-900 dark:text-neutral-400 dark:hover:text-white"
+              : "text-stone-600 hover:text-stone-900 dark:text-neutral-400 dark:hover:text-white"
           )}
         >
           <Database size={12} />
@@ -179,7 +179,7 @@ export const CanvasesQuickPanelSection: React.FC<CanvasesQuickPanelSectionProps>
             "flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer",
             tabMode === 'all'
               ? "bg-white dark:bg-[#1C1C28] text-stone-900 dark:text-white shadow-xs"
-              : "text-stone-500 hover:text-stone-900 dark:text-neutral-400 dark:hover:text-white"
+              : "text-stone-600 hover:text-stone-900 dark:text-neutral-400 dark:hover:text-white"
           )}
         >
           <Layers size={12} />
@@ -213,7 +213,7 @@ export const CanvasesQuickPanelSection: React.FC<CanvasesQuickPanelSectionProps>
                     className="p-2.5 flex items-center justify-between cursor-pointer hover:bg-black/[0.03] dark:hover:bg-white/[0.03] transition-colors border-b border-black/[0.04] dark:border-white/[0.04]"
                   >
                     <div className="flex items-center gap-2 min-w-0">
-                      <span className="text-stone-400">
+                      <span className="text-stone-500 dark:text-stone-400">
                         {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
                       </span>
 
@@ -239,7 +239,7 @@ export const CanvasesQuickPanelSection: React.FC<CanvasesQuickPanelSectionProps>
                       )}
                     </div>
 
-                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-black/5 dark:bg-white/5 text-stone-500 dark:text-neutral-400 shrink-0">
+                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-black/5 dark:bg-white/5 text-stone-600 dark:text-neutral-400 shrink-0">
                       {group.items.length}
                     </span>
                   </div>

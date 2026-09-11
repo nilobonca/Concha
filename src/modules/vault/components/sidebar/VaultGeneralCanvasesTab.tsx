@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import { Layer } from '@/interfaces/utils/indexedDB';
 import { useIDB } from '@/utils/indexedDB';
 import { useVaultStore, getCustomOrder, setCustomOrder } from '../../hooks/useVaultStore';
+import { updateBoardNameInIDB } from '@/modules/board/hooks/useBoardStorage';
 import ContextMenu from '@/components/ContextMenu';
 import { DeleteConfirmModal } from '../DeleteConfirmModal';
 import { PromptInputModal } from '../PromptInputModal';
@@ -436,9 +437,19 @@ export const VaultGeneralCanvasesTab: React.FC<VaultGeneralCanvasesTabProps> = (
         confirmText="Salvar"
         icon={<Edit2 className="w-5 h-5 text-amber-500" />}
         onClose={() => setRenameTarget(null)}
-        onConfirm={(newName) => {
-          if (renameTarget && newName && newName.trim() && newName.trim() !== renameTarget.name) {
-            updateLayer({ ...renameTarget, name: newName.trim() });
+        onConfirm={async (newName) => {
+          const trimmed = newName?.trim();
+          if (renameTarget && trimmed && trimmed !== renameTarget.name) {
+            updateLayer({ ...renameTarget, name: trimmed });
+            useVaultStore.getState().updateCanvasTitleInTabs(renameTarget.id, trimmed);
+            if (renameTarget.canvasType === 'board') {
+              await updateBoardNameInIDB(renameTarget.id, trimmed);
+            }
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('canvas_renamed', {
+                detail: { canvasId: renameTarget.id, newName: trimmed }
+              }));
+            }
           }
           setRenameTarget(null);
         }}

@@ -1,5 +1,6 @@
 import { IVaultStorageProvider } from './VaultStorageAdapter';
 import { VaultNode, VaultDocument, VaultFolder, VaultMediaFile } from '../interfaces/vault';
+import { sanitizeVaultPath } from '../utils/fileNameUtils';
 
 const DB_NAME = 'RPGSA_DB';
 
@@ -55,7 +56,8 @@ export class IDBStorageProvider implements IVaultStorageProvider {
 
   async saveFile(filePath: string, file: File | Blob): Promise<void> {
     const db = await this.getDB();
-    const parts = filePath.split('/');
+    const cleanPath = sanitizeVaultPath(filePath, false);
+    const parts = cleanPath.split('/');
     const name = parts.pop() || 'file';
     const folderPath = parts.join('/');
     const ext = name.split('.').pop()?.toLowerCase() || '';
@@ -121,7 +123,12 @@ export class IDBStorageProvider implements IVaultStorageProvider {
   async readDocument(filePath: string): Promise<string> {
     if (!filePath || filePath.startsWith('canvas:')) return '';
     const db = await this.getDB();
-    const docId = this.buildDocId(filePath);
+    let cleanPath = filePath.replace(/\\/g, '/').replace(/^\/+/, '');
+    if (/%[0-9a-fA-F]{2}/.test(cleanPath)) {
+      try { cleanPath = decodeURIComponent(cleanPath); } catch {}
+    }
+    cleanPath = cleanPath.normalize('NFC');
+    const docId = this.buildDocId(cleanPath);
     return new Promise((resolve, reject) => {
       const tx = db.transaction('vault_documents', 'readonly');
       const store = tx.objectStore('vault_documents');
@@ -140,9 +147,10 @@ export class IDBStorageProvider implements IVaultStorageProvider {
 
   async saveDocument(filePath: string, content: string): Promise<void> {
     const db = await this.getDB();
-    const docId = this.buildDocId(filePath);
-    const parts = filePath.split('/');
-    const title = parts.pop()?.replace(/\.md$/, '') || 'Sem título';
+    const cleanPath = sanitizeVaultPath(filePath, false);
+    const docId = this.buildDocId(cleanPath);
+    const parts = cleanPath.split('/');
+    const title = parts.pop()?.replace(/\.(md|txt)$/i, '') || 'Sem título';
     const folderPath = parts.join('/');
 
     return new Promise((resolve, reject) => {
@@ -154,13 +162,13 @@ export class IDBStorageProvider implements IVaultStorageProvider {
         const existing = getReq.result;
         const now = Date.now();
         const doc: VaultDocument = existing
-          ? { ...existing, content, updatedAt: now }
+          ? { ...existing, title, path: cleanPath, folderPath, content, updatedAt: now }
           : {
               id: docId,
               vaultId: this._vaultId,
               title,
               content,
-              path: filePath,
+              path: cleanPath,
               folderPath,
               tags: [],
               createdAt: now,
@@ -176,8 +184,9 @@ export class IDBStorageProvider implements IVaultStorageProvider {
   }
 
   async createDocument(filePath: string, initialContent: string = ''): Promise<VaultDocument> {
-    await this.saveDocument(filePath, initialContent);
-    const docId = this.buildDocId(filePath);
+    const cleanPath = sanitizeVaultPath(filePath, false);
+    await this.saveDocument(cleanPath, initialContent);
+    const docId = this.buildDocId(cleanPath);
     const db = await this.getDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction('vault_documents', 'readonly');
@@ -190,15 +199,16 @@ export class IDBStorageProvider implements IVaultStorageProvider {
 
   async createFolder(folderPath: string): Promise<void> {
     const db = await this.getDB();
-    const parts = folderPath.split('/');
+    const cleanPath = sanitizeVaultPath(folderPath, true);
+    const parts = cleanPath.split('/');
     const name = parts[parts.length - 1];
     const parentPath = parts.slice(0, -1).join('/');
 
     const folder: VaultFolder = {
-      id: `${this._vaultId}:${folderPath}`,
+      id: `${this._vaultId}:${cleanPath}`,
       vaultId: this._vaultId,
       name,
-      path: folderPath,
+      path: cleanPath,
       parentPath,
       expanded: true
     };
@@ -211,6 +221,7 @@ export class IDBStorageProvider implements IVaultStorageProvider {
       req.onerror = () => reject(req.error);
     });
   }
+
 
   async deleteNode(nodePath: string, isFolder: boolean): Promise<void> {
     const db = await this.getDB();
@@ -240,15 +251,21 @@ export class IDBStorageProvider implements IVaultStorageProvider {
         };
       });
     } else {
+      const cleanPath = nodePath.replace(/\\/g, '/').replace(/^\/+/, '');
       const tx = db.transaction(['vault_documents', 'vault_files'], 'readwrite');
       const docStore = tx.objectStore('vault_documents');
       const fileStore = tx.objectStore('vault_files');
 
-      docStore.delete(this.buildDocId(nodePath));
-      fileStore.delete(`${this._vaultId}:${nodePath}`);
+      docStore.delete(this.buildDocId(cleanPath));
+      docStore.delete(`${this._vaultId}:${cleanPath}`);
+      fileStore.delete(`${this._vaultId}:${cleanPath}`);
 
       return new Promise((resolve) => {
         tx.oncomplete = () => {
+          if (this.urlCache.has(cleanPath)) {
+            URL.revokeObjectURL(this.urlCache.get(cleanPath)!);
+            this.urlCache.delete(cleanPath);
+          }
           if (this.urlCache.has(nodePath)) {
             URL.revokeObjectURL(this.urlCache.get(nodePath)!);
             this.urlCache.delete(nodePath);
@@ -337,23 +354,72 @@ export class IDBStorageProvider implements IVaultStorageProvider {
       });
     } else {
       const db = await this.getDB();
-      const docId = this.buildDocId(oldPath);
-      const isDoc = await new Promise<boolean>((resolve) => {
+      const normOld = oldPath.replace(/\\/g, '/').replace(/^\/+/, '');
+      const normNew = sanitizeVaultPath(newPath, isFolder);
+      const docId = this.buildDocId(normOld);
+
+      // 1. Procura o documento pelo docId padrão
+      let existingDoc: VaultDocument | null = await new Promise<VaultDocument | null>((resolve) => {
         const tx = db.transaction('vault_documents', 'readonly');
         const store = tx.objectStore('vault_documents');
         const req = store.get(docId);
-        req.onsuccess = () => resolve(!!req.result);
-        req.onerror = () => resolve(false);
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => resolve(null);
       });
 
-      if (isDoc) {
-        const content = await this.readDocument(oldPath);
-        await this.saveDocument(newPath, content);
-        await this.deleteNode(oldPath, false);
+      // 2. Se não encontrou por docId direto, busca por correspondência de caminho
+      if (!existingDoc) {
+        const allDocs = await this.getAllDocs(db);
+        const altOld = /\.(md|txt)$/i.test(normOld) ? normOld : `${normOld}.md`;
+        existingDoc = allDocs.find(d =>
+          d.id === docId ||
+          d.path === normOld ||
+          d.path === altOld ||
+          d.path === oldPath ||
+          d.id.endsWith(`:${normOld}`) ||
+          d.id.endsWith(`:${altOld}`) ||
+          d.id.endsWith(`:${oldPath}`)
+        ) || null;
+      }
+
+      if (existingDoc) {
+        const content = existingDoc.content !== undefined ? existingDoc.content : await this.readDocument(normOld);
+        await this.saveDocument(normNew, content);
+        await this.deleteNode(normOld, false);
+        if (oldPath !== normOld) {
+          await this.deleteNode(oldPath, false);
+        }
+        if (existingDoc.id !== this.buildDocId(normNew) && existingDoc.id !== docId) {
+          try {
+            const delTx = db.transaction('vault_documents', 'readwrite');
+            delTx.objectStore('vault_documents').delete(existingDoc.id);
+          } catch {}
+        }
       } else {
-        const blob = await this.getFileBlob(oldPath);
-        await this.saveFile(newPath, blob);
-        await this.deleteNode(oldPath, false);
+        // Verifica se é arquivo de mídia em vault_files
+        const fileExists = await new Promise<boolean>((resolve) => {
+          const tx = db.transaction('vault_files', 'readonly');
+          const store = tx.objectStore('vault_files');
+          const req = store.get(`${this._vaultId}:${normOld}`);
+          req.onsuccess = () => resolve(!!req.result);
+          req.onerror = () => resolve(false);
+        });
+
+        if (fileExists) {
+          const blob = await this.getFileBlob(normOld);
+          await this.saveFile(normNew, blob);
+          await this.deleteNode(normOld, false);
+          if (oldPath !== normOld) {
+            await this.deleteNode(oldPath, false);
+          }
+        } else {
+          // Se for uma nota Markdown / texto que ainda não existia fisicamente, cria direto em newPath
+          if (/\.(md|txt)$/i.test(normNew) || /\.(md|txt)$/i.test(normOld)) {
+            await this.saveDocument(normNew, '');
+          } else {
+            throw new Error(`Arquivo não encontrado para renomear: ${oldPath}`);
+          }
+        }
       }
     }
   }
@@ -361,9 +427,15 @@ export class IDBStorageProvider implements IVaultStorageProvider {
   // --- Helpers ---
 
   private buildDocId(filePath: string): string {
-    const normalized = filePath.endsWith('.md') ? filePath : `${filePath}.md`;
+    let clean = filePath.replace(/\\/g, '/').replace(/^\/+/, '');
+    if (/%[0-9a-fA-F]{2}/.test(clean)) {
+      try { clean = decodeURIComponent(clean); } catch {}
+    }
+    clean = clean.normalize('NFC');
+    const normalized = /\.(md|txt)$/i.test(clean) ? clean : `${clean}.md`;
     return `${this._vaultId}:${normalized}`;
   }
+
 
   private getDB(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {

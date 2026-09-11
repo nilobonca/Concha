@@ -19,6 +19,8 @@ export const VaultSettingsModal: React.FC = () => {
     vaultName, 
     setVaultName, 
     storageType, 
+    isConnected,
+    vaultId,
     connectFSA, 
     connectIDB,
     refreshNodes,
@@ -86,10 +88,22 @@ export const VaultSettingsModal: React.FC = () => {
   const handleConnectWindowsFolder = async () => {
     try {
       setIsConnecting(true);
-      const success = await connectFSA();
+      const success = await connectFSA(vaultId, true);
       if (success) {
         await refreshNodes();
       }
+    } finally {
+      setIsConnecting(false);
+    }
+  };
+
+  const handleReconnectWindowsFolder = async () => {
+    try {
+      setIsConnecting(true);
+      await connectFSA(vaultId, false);
+      await refreshNodes();
+    } catch (err) {
+      console.warn('Falha ao reconectar pasta:', err);
     } finally {
       setIsConnecting(false);
     }
@@ -152,47 +166,99 @@ export const VaultSettingsModal: React.FC = () => {
 
             {/* Current Storage Status Box */}
             {storageType === 'fsa' ? (
-              <div className="p-4 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/40 flex flex-col gap-3">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center text-emerald-700 dark:text-emerald-300 shrink-0">
-                      <HardDrive className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <span className="font-semibold text-xs text-emerald-900 dark:text-emerald-200 flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                        Conectado a uma Pasta Local do Windows (HD)
-                      </span>
-                      <p className="text-[11px] text-emerald-700/90 dark:text-emerald-300/80 mt-0.5">
-                        Sincronização ativa: seus arquivos <code className="font-mono bg-emerald-100 dark:bg-emerald-900/50 px-1 py-0.2 rounded">.md</code>, áudios e imagens são salvos diretamente no seu computador.
-                      </p>
+              isConnected ? (
+                <div className="p-4 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/40 flex flex-col gap-3">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center text-emerald-700 dark:text-emerald-300 shrink-0">
+                        <HardDrive className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="font-semibold text-xs text-emerald-900 dark:text-emerald-200 flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                          Conectado a uma Pasta Local do Windows (HD)
+                        </span>
+                        <p className="text-[11px] text-emerald-700/90 dark:text-emerald-300/80 mt-0.5">
+                          Sincronização ativa: seus arquivos <code className="font-mono bg-emerald-100 dark:bg-emerald-900/50 px-1 py-0.2 rounded">.md</code>, áudios e imagens são salvos diretamente no seu computador.
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                <div className="flex items-center gap-2 pt-1 border-t border-emerald-200/70 dark:border-emerald-800/30">
-                  <button
-                    onClick={handleConnectWindowsFolder}
-                    disabled={isConnecting}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs transition-colors cursor-pointer shadow-xs disabled:opacity-50"
-                  >
-                    {isConnecting ? (
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <FolderSync className="w-3.5 h-3.5" />
-                    )}
-                    <span>Alterar Pasta do Windows...</span>
-                  </button>
+                  <div className="flex items-center gap-2 pt-1 border-t border-emerald-200/70 dark:border-emerald-800/30">
+                    <button
+                      onClick={handleConnectWindowsFolder}
+                      disabled={isConnecting}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs transition-colors cursor-pointer shadow-xs disabled:opacity-50"
+                    >
+                      {isConnecting ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <FolderSync className="w-3.5 h-3.5" />
+                      )}
+                      <span>Alterar Pasta do Windows...</span>
+                    </button>
 
-                  <button
-                    onClick={handleSwitchToIDB}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-white/5 hover:bg-stone-100 dark:hover:bg-white/10 text-stone-700 dark:text-neutral-300 font-medium text-xs border border-stone-200 dark:border-white/10 transition-colors cursor-pointer"
-                  >
-                    <Database className="w-3.5 h-3.5 text-[#1831D7] dark:text-[#7F95FF]" />
-                    <span>Usar Banco IndexedDB</span>
-                  </button>
+                    <button
+                      onClick={handleSwitchToIDB}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-white/5 hover:bg-stone-100 dark:hover:bg-white/10 text-stone-700 dark:text-neutral-300 font-medium text-xs border border-stone-200 dark:border-white/10 transition-colors cursor-pointer"
+                    >
+                      <Database className="w-3.5 h-3.5 text-[#1831D7] dark:text-[#7F95FF]" />
+                      <span>Usar Banco IndexedDB</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="p-4 rounded-xl bg-amber-50/80 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/40 flex flex-col gap-3">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center text-amber-700 dark:text-amber-300 shrink-0">
+                        <HardDrive className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="font-semibold text-xs text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-amber-500" />
+                          Pasta Desconectada (Permissão Pendente)
+                        </span>
+                        <p className="text-[11px] text-amber-700/90 dark:text-amber-300/80 mt-0.5">
+                          O acesso à pasta local deste Vault precisa de autorização do navegador para abrir e criar notas.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-1 border-t border-amber-200/70 dark:border-amber-800/30">
+                    <button
+                      onClick={handleReconnectWindowsFolder}
+                      disabled={isConnecting}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1831D7] hover:bg-[#1831D7]/90 text-white font-medium text-xs transition-colors cursor-pointer shadow-xs disabled:opacity-50"
+                    >
+                      {isConnecting ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <FolderSync className="w-3.5 h-3.5" />
+                      )}
+                      <span>Reconectar Pasta</span>
+                    </button>
+
+                    <button
+                      onClick={handleConnectWindowsFolder}
+                      disabled={isConnecting}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-white/5 hover:bg-stone-100 dark:hover:bg-white/10 text-stone-700 dark:text-neutral-300 font-medium text-xs border border-stone-200 dark:border-white/10 transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      <span>Escolher Outra Pasta...</span>
+                    </button>
+
+                    <button
+                      onClick={handleSwitchToIDB}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-white/5 hover:bg-stone-100 dark:hover:bg-white/10 text-stone-700 dark:text-neutral-300 font-medium text-xs border border-stone-200 dark:border-white/10 transition-colors cursor-pointer"
+                    >
+                      <Database className="w-3.5 h-3.5 text-[#1831D7] dark:text-[#7F95FF]" />
+                      <span>Usar IDB</span>
+                    </button>
+                  </div>
+                </div>
+              )
             ) : (
               <div className="p-4 rounded-xl bg-[#1831D7]/10 border border-[#7F95FF]/30 flex flex-col gap-3">
                 <div className="flex items-start gap-3">

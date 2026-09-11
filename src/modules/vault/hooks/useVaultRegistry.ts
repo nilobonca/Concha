@@ -101,9 +101,9 @@ export function useVaultRegistry() {
     };
   }, [vaults, currentVaultId, currentVaultName, currentStorageType, allCanvases, getAllFiles]);
 
-  // Alternar para outro vault
+  // Alternar para outro vault (ou reconectar o atual caso esteja desconectado)
   const switchVault = useCallback(async (targetVault: RegisteredVault, forcePicker = false): Promise<boolean> => {
-    if (targetVault.id === currentVaultId) return true;
+    if (targetVault.id === currentVaultId && isConnected) return true;
 
     if (targetVault.storageType === 'fsa') {
       const success = await connectFSA(targetVault.id, forcePicker, targetVault.name);
@@ -112,7 +112,7 @@ export function useVaultRegistry() {
       await connectIDB(targetVault.id, targetVault.name);
       return true;
     }
-  }, [currentVaultId, connectFSA, connectIDB]);
+  }, [currentVaultId, isConnected, connectFSA, connectIDB]);
 
   // Remover vault do registro (com opção de excluir também os arquivos físicos do computador)
   const removeVault = useCallback(async (vaultId: string, deleteDiskFolder: boolean = false): Promise<boolean> => {

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { RegisteredVault } from '@/modules/vault/hooks/useVaultRegistry';
 import { SafeIcon } from '@/components/common/SafeIcon';
+import { isElectron, setWindowMode } from '@/utils/electronHelper';
 import clsx from 'clsx';
 
 interface VaultActiveHeroProps {
@@ -184,7 +185,19 @@ export const VaultActiveHero: React.FC<VaultActiveHeroProps> = ({
         <div className="flex flex-col sm:flex-row lg:flex-col gap-3 shrink-0 lg:min-w-[240px]">
           {/* Main Action: Abrir Vault no Editor */}
           <button
-            onClick={() => router.push('/vault')}
+            onClick={async () => {
+              if (activeVault.storageType === 'fsa') {
+                try {
+                  await onConnectFSA();
+                } catch (err) {
+                  console.warn('[VaultActiveHero] Falha ao conectar antes de abrir:', err);
+                }
+              }
+              if (isElectron()) {
+                setWindowMode('workspace');
+              }
+              router.push('/vault');
+            }}
             className="w-full btn-island bg-[#1831D7] text-white hover:bg-[#1831D7]/90 shadow-lg shadow-[#1831D7]/20 font-bold px-6 py-3.5 rounded-2xl flex items-center justify-center gap-2.5 transition-all group"
           >
             <SafeIcon size={18} className="group-hover:scale-105 transition-transform" />

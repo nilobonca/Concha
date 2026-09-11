@@ -83,9 +83,8 @@ export const VaultListSection: React.FC<VaultListSectionProps> = ({
   // Clique duplo (2x): Entra diretamente no editor do Vault
   const handleDoubleClickVault = async (vault: RegisteredVault) => {
     try {
-      if (vault.id !== activeVaultId) {
-        const success = await onSwitchVault(vault, true);
-        if (success === false) return;
+      if (vault.id !== activeVaultId || vault.storageType === 'fsa') {
+        await onSwitchVault(vault, false);
       }
       if (isElectron()) {
         setWindowMode('workspace');
@@ -166,10 +165,10 @@ export const VaultListSection: React.FC<VaultListSectionProps> = ({
       {/* Header: Title, Count & New Vault Button */}
       <div className="shrink-0 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-stone-500 dark:text-neutral-400 font-bold">
+          <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-stone-700 dark:text-neutral-400 font-bold">
             Lista de Vaults
           </span>
-          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-black/5 dark:bg-white/10 text-stone-600 dark:text-neutral-400 font-bold">
+          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-black/5 dark:bg-white/10 text-stone-700 dark:text-neutral-400 font-bold">
             {vaults.length}
           </span>
         </div>
@@ -189,13 +188,13 @@ export const VaultListSection: React.FC<VaultListSectionProps> = ({
       {/* Search Input (visível quando houver mais de 2 vaults ou já houver busca) */}
       {(vaults.length > 2 || searchQuery) && (
         <div className="shrink-0 relative">
-          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 dark:text-neutral-500" />
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-500 dark:text-neutral-500" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Filtrar vaults..."
-            className="w-full bg-black/[0.03] dark:bg-white/[0.04] border border-black/[0.08] dark:border-white/[0.08] rounded-lg pl-7 pr-7 py-1 text-xs text-stone-900 dark:text-white placeholder-stone-400 dark:placeholder-neutral-500 outline-none focus:border-[#7F95FF] transition-colors"
+            className="w-full bg-black/[0.03] dark:bg-white/[0.04] border border-black/[0.08] dark:border-white/[0.08] rounded-lg pl-7 pr-7 py-1 text-xs text-stone-900 dark:text-white placeholder-stone-500 dark:placeholder-neutral-500 outline-none focus:border-[#7F95FF] transition-colors"
           />
           {searchQuery && (
             <button
@@ -332,18 +331,18 @@ export const VaultListSection: React.FC<VaultListSectionProps> = ({
                 </div>
 
                 {/* Bottom Row: Path / Details */}
-                <div className="flex items-center justify-between text-[10px] text-stone-500 dark:text-neutral-400 pt-1 border-t border-black/[0.04] dark:border-white/[0.04]">
+                <div className="flex items-center justify-between text-[10px] text-stone-600 dark:text-neutral-400 pt-1 border-t border-black/[0.04] dark:border-white/[0.04]">
                   <span className="font-mono text-[10px] truncate max-w-[180px]">
                     {vault.folderName || vault.path || (isFSA ? 'HD Local' : 'Armazenamento Interno')}
                   </span>
 
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="flex items-center gap-0.5">
+                    <span className="flex items-center gap-0.5 font-medium">
                       <FileText size={10} />
                       {vault.documentCount || 0}
                     </span>
                     <span>•</span>
-                    <span className="flex items-center gap-0.5">
+                    <span className="flex items-center gap-0.5 font-medium">
                       <Layers size={10} />
                       {vault.canvasCount || 0}
                     </span>
@@ -355,8 +354,8 @@ export const VaultListSection: React.FC<VaultListSectionProps> = ({
         )}
       </div>
 
-      <p className="shrink-0 text-[9px] text-center text-stone-400 dark:text-neutral-500 pt-1 pb-0.5">
-        Clique <span className="font-semibold text-stone-600 dark:text-neutral-400">1x</span> para alternar • <span className="font-semibold text-stone-600 dark:text-neutral-400">2x</span> para abrir • <span className="font-semibold text-stone-600 dark:text-neutral-400">Direito</span> para opções
+      <p className="shrink-0 text-[10px] text-center text-stone-600 dark:text-neutral-500 pt-1 pb-0.5">
+        Clique <span className="font-bold text-stone-800 dark:text-neutral-300">1x</span> para alternar • <span className="font-bold text-stone-800 dark:text-neutral-300">2x</span> para abrir • <span className="font-bold text-stone-800 dark:text-neutral-300">Direito</span> para opções
       </p>
 
       {/* Menu de Contexto Flutuante */}

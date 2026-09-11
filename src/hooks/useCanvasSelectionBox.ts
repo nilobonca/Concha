@@ -147,7 +147,7 @@ export const useCanvasSelectionBox = ({
   }, [activeImages, activeAreas, activePins, activeSoundboardItems, activeNotes, setSelectedItemIds]);
 
   const handleMultiSelect = useCallback((e: React.MouseEvent | React.PointerEvent | React.TouchEvent | undefined, id: string) => {
-    if (e && (('ctrlKey' in e && e.ctrlKey) || ('metaKey' in e && e.metaKey))) {
+    if (e && (('ctrlKey' in e && e.ctrlKey) || ('metaKey' in e && e.metaKey) || ('shiftKey' in e && e.shiftKey))) {
       setSelectedItemIds((prev: Set<string>) => {
         const next = new Set(prev);
         if (next.has(id)) next.delete(id);

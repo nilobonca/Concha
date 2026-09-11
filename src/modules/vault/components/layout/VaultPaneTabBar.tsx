@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   FileText, 
   FolderKanban, 
@@ -12,6 +12,7 @@ import {
 import { VaultPaneLeaf, VaultTab } from '../../interfaces/layout';
 import { useVaultStore } from '../../hooks/useVaultStore';
 import { isElectron } from '@/utils/electronHelper';
+import { useSmoothHorizontalScroll } from '@/hooks/useSmoothHorizontalScroll';
 
 interface VaultPaneTabBarProps {
   pane: VaultPaneLeaf;
@@ -36,6 +37,7 @@ export const VaultPaneTabBar: React.FC<VaultPaneTabBarProps> = ({
     setActiveTabInPane, 
     closeTabInPane, 
     createFile, 
+    openNewTab,
     setDraggedTab, 
     setDropPreview,
     moveTabToPane,
@@ -80,11 +82,29 @@ export const VaultPaneTabBar: React.FC<VaultPaneTabBarProps> = ({
     setDropPreview(null);
   };
 
-  const handleCreateNewTab = async () => {
-    await createFile('', '');
+  // Rolagem horizontal fluida baseada em física com inércia por RAF
+  const tabStripRef = useSmoothHorizontalScroll<HTMLDivElement>({ speed: 1.15, easing: 0.16 });
+  const activeTabRef = useRef<HTMLDivElement | null>(null);
+
+  // Rolagem automática suave para manter a aba ativa sempre visível
+  useEffect(() => {
+    if (activeTabRef.current) {
+      activeTabRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+        inline: 'nearest'
+      });
+    }
+  }, [pane.activePath]);
+
+  const handleCreateNewTab = () => {
+    openNewTab(pane.id);
   };
 
   const getTabIcon = (tab: VaultTab, isActive: boolean) => {
+    if (tab.type === 'empty' || tab.path.startsWith('new-tab:')) {
+      return <FileText className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-[#1831D7] dark:text-[#7F95FF]' : 'text-stone-400 dark:text-neutral-500'}`} />;
+    }
     const isCanvas = tab.type === 'canvas' || tab.path.startsWith('canvas:');
     if (isCanvas) {
       return <FolderKanban className={`w-3.5 h-3.5 shrink-0 ${isActive ? 'text-[#1831D7] dark:text-[#7F95FF]' : 'text-stone-400 dark:text-neutral-500'}`} />;
@@ -103,24 +123,27 @@ export const VaultPaneTabBar: React.FC<VaultPaneTabBarProps> = ({
       onDragOver={handleTabBarDragOver}
       onDrop={handleTabBarDrop}
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
-      className={`h-9 flex items-center justify-between border-b bg-stone-100/80 dark:bg-[#121218]/90 select-none overflow-x-auto no-scrollbar px-1 transition-colors app-region-drag ${
+      className={`h-9 flex items-center justify-between border-b bg-stone-100/80 dark:bg-[#121218]/90 select-none overflow-hidden px-1 transition-colors app-region-drag ${
         isActivePane 
           ? 'border-stone-200 dark:border-white/10' 
           : 'border-stone-200/60 dark:border-white/5 opacity-90'
       }`}
     >
-      {/* Tab Strip: Espaço livre permite arrastar a janela nativamente */}
+      {/* Tab Strip: Rolagem fluida com física e sem barra de scroll visível */}
       <div 
-        className="flex items-center gap-0.5 overflow-x-auto no-scrollbar flex-1 min-w-0 app-region-drag h-full"
+        ref={tabStripRef}
+        className="flex items-center gap-0.5 overflow-x-auto overflow-y-hidden no-scrollbar flex-1 min-w-0 app-region-drag h-full"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
         {pane.tabs.map((tab) => {
           const isActive = tab.path === pane.activePath;
           const isCanvas = tab.type === 'canvas' || tab.path.startsWith('canvas:');
+          const isNewTab = tab.type === 'empty' || tab.path.startsWith('new-tab:');
 
           return (
             <div
               key={tab.path}
+              ref={isActive ? activeTabRef : undefined}
               draggable
               onDragStart={(e) => handleTabDragStart(e, tab)}
               onDragEnd={handleTabDragEnd}
@@ -136,7 +159,7 @@ export const VaultPaneTabBar: React.FC<VaultPaneTabBarProps> = ({
               }`}
             >
               {getTabIcon(tab, isActive)}
-              <span className="truncate">{tab.title || 'Sem título'}</span>
+              <span className="truncate">{tab.title || (isNewTab ? 'Nova aba' : 'Sem título')}</span>
 
               {tab.isDirty && (
                 <span className="w-1.5 h-1.5 rounded-full bg-[#7F95FF] shrink-0" title="Alterações não salvas" />
@@ -166,7 +189,8 @@ export const VaultPaneTabBar: React.FC<VaultPaneTabBarProps> = ({
           onMouseDown={(e) => e.stopPropagation()}
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           className="p-1.5 text-stone-400 hover:text-stone-700 dark:text-neutral-500 dark:hover:text-neutral-200 hover:bg-stone-100 dark:hover:bg-white/10 rounded-md transition-colors ml-1 cursor-pointer app-region-no-drag shrink-0"
-          title="Nova nota nesta janela"
+          title="Nova aba (Ctrl+T)"
+          aria-label="Abrir nova aba"
         >
           <Plus className="w-3.5 h-3.5" />
         </button>

@@ -135,7 +135,7 @@ export const ActiveVaultPanelSection: React.FC<ActiveVaultPanelSectionProps> = (
           VAULT NAME (INLINE EDITABLE, SEM CAMINHO)
           ============================================================ */}
       <div className="shrink-0 p-3 rounded-2xl border border-black/[0.08] dark:border-white/[0.08] bg-black/[0.02] dark:bg-white/[0.03]">
-        <span className="text-[10px] uppercase font-bold text-stone-400 dark:text-[#B4D3F1]/70 tracking-wider">
+        <span className="text-[10px] uppercase font-bold text-stone-600 dark:text-[#B4D3F1]/70 tracking-wider">
           Nome do Vault
         </span>
 
@@ -203,7 +203,14 @@ export const ActiveVaultPanelSection: React.FC<ActiveVaultPanelSectionProps> = (
           PRIMARY CTA: ABRIR VAULT NO EDITOR →
           ============================================================ */}
       <button
-        onClick={() => {
+        onClick={async () => {
+          if (activeVault.storageType === 'fsa') {
+            try {
+              await onConnectFSA();
+            } catch (err) {
+              console.warn('[ActiveVaultPanelSection] Falha ao conectar antes de abrir:', err);
+            }
+          }
           if (isElectron()) {
             setWindowMode('workspace');
           }

@@ -142,8 +142,8 @@ export function isTabPathMatch(
   try { normTab = decodeURIComponent(normTab); } catch {}
   try { normTarget = decodeURIComponent(normTarget); } catch {}
 
-  normTab = normTab.toLowerCase();
-  normTarget = normTarget.toLowerCase();
+  normTab = normTab.normalize('NFC').toLowerCase();
+  normTarget = normTarget.normalize('NFC').toLowerCase();
 
   // Remove barras e prefixos relativos no início e fim
   normTab = normTab.replace(/^(\.\/|\/)+/, '').replace(/\/+$/, '');
@@ -248,24 +248,44 @@ export function removePaneFromTree(root: VaultLayoutNode, paneId: string): Vault
 }
 
 /**
- * Move ou insere uma aba dentro de um painel existente
+ * Move ou insere uma aba dentro de um painel existente.
+ * Se replaceActive for true e houver uma aba ativa no painel, substitui essa aba pelo novo item
+ * (a menos que o item já esteja aberto em outra aba do painel, caso em que apenas a ativa).
  */
 export function insertTabInPane(
   root: VaultLayoutNode,
   targetPaneId: string,
   tab: VaultTab,
-  targetIndex?: number
+  targetIndex?: number,
+  replaceActive: boolean = false
 ): VaultLayoutNode {
   return updatePaneInTree(root, targetPaneId, (pane) => {
-    const existingIndex = pane.tabs.findIndex(t => t.path === tab.path);
+    const existingIndex = pane.tabs.findIndex(t => 
+      t.path === tab.path || isTabPathMatch(t.path, tab.path, false, t.canvasId)
+    );
     let nextTabs = [...pane.tabs];
 
     if (existingIndex !== -1) {
-      // Já existe no painel, apenas ativa
+      // Já existe no painel, apenas ativa a aba correspondente
       return {
         ...pane,
-        activePath: tab.path
+        activePath: pane.tabs[existingIndex].path
       };
+    }
+
+    // Se deve substituir a aba ativa atual e há abas no painel
+    if (replaceActive && pane.tabs.length > 0) {
+      const activeIndex = pane.tabs.findIndex(t => 
+        t.path === pane.activePath || isTabPathMatch(t.path, pane.activePath, false, t.canvasId)
+      );
+      if (activeIndex !== -1) {
+        nextTabs[activeIndex] = tab;
+        return {
+          ...pane,
+          tabs: nextTabs,
+          activePath: tab.path
+        };
+      }
     }
 
     if (typeof targetIndex === 'number' && targetIndex >= 0 && targetIndex <= nextTabs.length) {

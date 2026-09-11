@@ -23,6 +23,8 @@ import { htmlToMarkdown } from '@/modules/vault/utils/markdownConverter';
 import { useCanvasGlobalStore } from '@/store/canvasStore';
 import { UpdateOriginalNoteModal } from '@/modules/vault/components/UpdateOriginalNoteModal';
 import { getCanvasNoteSyncPref, setCanvasNoteSyncPref } from '@/modules/vault/utils/canvasNoteSyncPref';
+import { BoardNoteTitle } from '@/modules/board/components/elements/BoardNoteTitle';
+import { handleTextareaFormattingShortcut, handleTextareaAutoPairing } from '@/utils/textareaFormatting';
 
 interface NoteItemProps {
   note: ActiveNote;
@@ -72,6 +74,7 @@ export default function NoteItem({
 }: NoteItemProps) {
   const { centerOn } = useCanvas();
   const setEditingNoteId = useCanvasGlobalStore(state => state.setEditingNoteId);
+  const selectedItemIds = useCanvasGlobalStore(state => state.selectedItemIds);
   const noteTitle = note.title || (note.vaultPath ? note.vaultPath.split('/').pop()?.replace(/\.(md|txt)$/i, '') : '') || '';
   const [text, setText] = useState(() => cleanDuplicateTitle(cleanLegacyPlaceholder(note.content), noteTitle));
   const [isEditing, setIsEditing] = useState(false);
@@ -139,27 +142,132 @@ export default function NoteItem({
     setShowSyncModal(false);
   }, []);
 
-  // Sincroniza conteúdo externo com estado local (sempre sanitizado)
-  useEffect(() => {
-    setText(cleanDuplicateTitle(cleanLegacyPlaceholder(note.content), noteTitle));
-  }, [note.content, noteTitle]);
+  const handleUpdateTitle = useCallback(async (newTitle: string) => {
+    const cleanTitle = newTitle.trim().replace(/\.(md|txt)$/i, '');
+    if (!cleanTitle) return;
 
-  // Purga permanentemente qualquer placeholder residual gravado no banco de dados
+    try {
+      const vaultStore = useVaultStore.getState();
+      if (!vaultStore.provider) {
+        await vaultStore.initializeStorage();
+      }
+    } catch (e) {
+      console.warn('Erro ao inicializar storage do Vault:', e);
+    }
+
+    if (note.vaultPath) {
+      const normalizedPath = note.vaultPath.replace(/\\/g, '/').replace(/^\/+/, '');
+      const parts = normalizedPath.split('/');
+      const isTxt = normalizedPath.toLowerCase().endsWith('.txt');
+      const ext = isTxt ? '.txt' : '.md';
+      const currentFileName = parts[parts.length - 1].replace(/\.(md|txt)$/i, '');
+
+      if (cleanTitle !== currentFileName) {
+        const newFileName = `${cleanTitle}${ext}`;
+        parts[parts.length - 1] = newFileName;
+        const newPath = parts.join('/');
+
+        try {
+          await useVaultStore.getState().renameNode(note.vaultPath, newPath, false);
+
+          onUpdate({
+            ...note,
+            title: cleanTitle,
+            vaultPath: newPath,
+          });
+          return;
+        } catch (err) {
+          console.warn('Falha ao renomear arquivo existente no Vault, criando/recuperando no novo caminho:', err);
+          try {
+            const provider = useVaultStore.getState().provider;
+            if (provider) {
+              await provider.createDocument(newPath, note.content || '');
+              await useVaultStore.getState().refreshNodes();
+              onUpdate({
+                ...note,
+                title: cleanTitle,
+                vaultPath: newPath,
+              });
+              return;
+            }
+          } catch (createErr) {
+            console.error('Falha ao recriar documento no Vault:', createErr);
+          }
+        }
+      }
+    } else {
+      // Se não havia vaultPath vinculado, cria a nota no Vault para persistência real
+      try {
+        const createdPath = await useVaultStore.getState().createFile('', cleanTitle, note.content || '', false);
+        if (createdPath) {
+          onUpdate({
+            ...note,
+            title: cleanTitle,
+            vaultPath: createdPath,
+          });
+          return;
+        }
+      } catch (err) {
+        console.error('Erro ao criar nota no Vault a partir do Canva:', err);
+      }
+    }
+
+    onUpdate({
+      ...note,
+      title: cleanTitle,
+    });
+  }, [note, onUpdate]);
+
+  // Observa renomeação externa da nota do Vault para manter a nota sincronizada
   useEffect(() => {
+    const handleVaultNodeRenamed = (e: Event) => {
+      const customEvent = e as CustomEvent<{ oldPath: string; newPath: string }>;
+      if (customEvent.detail && note.vaultPath) {
+        const normOld = customEvent.detail.oldPath.replace(/\\/g, '/').replace(/^\/+/, '');
+        const normCurrent = note.vaultPath.replace(/\\/g, '/').replace(/^\/+/, '');
+        if (normOld === normCurrent || customEvent.detail.oldPath === note.vaultPath) {
+          const newPath = customEvent.detail.newPath.replace(/\\/g, '/').replace(/^\/+/, '');
+          const newTitle = newPath.split('/').pop()?.replace(/\.(md|txt)$/i, '') || '';
+          onUpdate({
+            ...note,
+            vaultPath: newPath,
+            title: newTitle,
+          });
+        }
+      }
+    };
+
+    window.addEventListener('vault_node_renamed', handleVaultNodeRenamed);
+    return () => {
+      window.removeEventListener('vault_node_renamed', handleVaultNodeRenamed);
+    };
+  }, [note, onUpdate]);
+
+  // Sincroniza conteúdo externo com estado local (sempre sanitizado quando não estiver editando)
+  useEffect(() => {
+    if (isEditing) return;
+    setText(cleanDuplicateTitle(cleanLegacyPlaceholder(note.content), noteTitle));
+  }, [note.content, noteTitle, isEditing]);
+
+  // Purga permanentemente qualquer placeholder residual gravado no banco de dados quando não estiver editando
+  useEffect(() => {
+    if (isEditing) return;
     const cleaned = cleanDuplicateTitle(cleanLegacyPlaceholder(note.content), noteTitle);
     if (note.content && note.content !== cleaned) {
       onUpdate({ ...note, content: cleaned });
     }
-  }, [note.content, noteTitle, onUpdate, note]);
+  }, [note.content, noteTitle, onUpdate, note, isEditing]);
 
   // Se o item for desmarcado, fecha modo de edição e popover
+  const prevIsSelectedRef = useRef(isSelected);
   useEffect(() => {
-    if (!isSelected) {
+    if (prevIsSelectedRef.current && !isSelected) {
       if (isEditing) {
         finishEditing();
       }
       setShowColorPicker(false);
     }
+    prevIsSelectedRef.current = isSelected;
   }, [isSelected, isEditing, finishEditing]);
 
   // Ao entrar no modo de edição, foca e coloca cursor no final
@@ -205,9 +313,11 @@ export default function NoteItem({
     mouseDownPosRef.current = { x: e.clientX, y: e.clientY };
   };
 
-  // Clique simples: se já ativo antes deste clique e não editando, ativa edição
+  // Clique simples: se já ativo antes deste clique e não editando, ativa edição (apenas quando não houver modificadores e seleção única)
   const handleClick = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('.prevent-edit-trigger')) return;
+    if (e.ctrlKey || e.metaKey || e.shiftKey) return;
+    if (selectedItemIds.size > 1) return;
 
     if (mouseDownPosRef.current) {
       const dx = Math.abs(e.clientX - mouseDownPosRef.current.x);
@@ -220,10 +330,13 @@ export default function NoteItem({
     }
   };
 
-  // Clique duplo: sempre ativa edição
+  // Clique duplo: sempre ativa edição (a menos que esteja com modificadores)
   const handleDoubleClick = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('.prevent-edit-trigger')) return;
+    if (e.ctrlKey || e.metaKey || e.shiftKey) return;
     e.stopPropagation();
+    window.getSelection()?.removeAllRanges();
+    onSelect?.(e);
     setIsEditing(true);
   };
 
@@ -238,15 +351,32 @@ export default function NoteItem({
   // Teclado na textarea
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (isEditing) {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        e.nativeEvent.stopImmediatePropagation();
+        finishEditing();
+        textareaRef.current?.blur();
+        return;
+      }
+
+      if (handleTextareaFormattingShortcut(e, (newVal) => {
+        setText(newVal);
+        onUpdate({ ...note, content: newVal });
+      })) {
+        return;
+      }
+
+      if (handleTextareaAutoPairing(e, (newVal) => {
+        setText(newVal);
+        onUpdate({ ...note, content: newVal });
+      })) {
+        return;
+      }
+
       // Quando estiver em modo de edição, isola todos os eventos de tecla (incluindo setas direcionais)
       // para navegar exclusivamente dentro do texto da textarea sem mover a nota no canvas
       e.stopPropagation();
       e.nativeEvent.stopImmediatePropagation();
-      if (e.key === 'Escape') {
-        finishEditing();
-        textareaRef.current?.blur();
-      }
-      return;
     }
   };
 
@@ -310,6 +440,10 @@ export default function NoteItem({
       onDoubleClick={handleDoubleClick}
       onContextMenu={onContextMenu}
       onKeyDownCapture={(e) => {
+        const targetTag = (e.target as HTMLElement)?.tagName;
+        if (targetTag === 'TEXTAREA' || targetTag === 'INPUT') {
+          return;
+        }
         if (isEditing) {
           e.stopPropagation();
           e.nativeEvent.stopImmediatePropagation();
@@ -325,23 +459,16 @@ export default function NoteItem({
       {/* ============================================================
           TÍTULO / NOME DA NOTA EM CIMA DO RETÂNGULO DE BORDA À ESQUERDA
           ============================================================ */}
-      <div
-        style={{ top: -26, left: 6 }}
-        className="absolute z-30 select-none pointer-events-auto flex items-center max-w-[calc(100%-12px)]"
-      >
-        <span
-          className="text-xs font-medium text-stone-600 dark:text-neutral-400 truncate tracking-tight hover:text-stone-900 dark:hover:text-neutral-200 transition-colors"
-          title={note.title || (note.vaultPath ? note.vaultPath.split('/').pop()?.replace(/\.(md|txt)$/i, '') : '') || 'Nota'}
-        >
-          {note.title || (note.vaultPath ? note.vaultPath.split('/').pop()?.replace(/\.(md|txt)$/i, '') : '') || 'Nota'}
-        </span>
-      </div>
+      <BoardNoteTitle
+        title={noteTitle || 'Nota'}
+        onUpdateTitle={handleUpdateTitle}
+      />
 
       {/* ============================================================
           BOTÕES DE OPÇÕES CENTRALIZADOS MAIS ACIMA DA NOTA
           (Excluir, Cor, Centralizar Objeto, Editar)
           ============================================================ */}
-      {isSelected && (
+      {isSelected && selectedItemIds.size <= 1 && (
         <div
           id={`note-toolbar-${note.id}`}
           style={{ top: -72 }}
@@ -556,7 +683,24 @@ export default function NoteItem({
             <Focus size={14} />
           </button>
 
-          {/* 4. Botão Editar */}
+          {/* 4. Botão Abrir no Editor do Vault */}
+          {note.vaultPath && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                useVaultStore.getState().openDocument(note.vaultPath!);
+              }}
+              onMouseDown={(e) => e.preventDefault()}
+              className="p-1.5 rounded-lg hover:bg-stone-100 dark:hover:bg-white/10 text-stone-600 dark:text-neutral-300 hover:text-[#1831D7] dark:hover:text-[#7F95FF] transition-colors cursor-pointer flex items-center justify-center"
+              title="Abrir nota original no editor do Vault"
+              aria-label="Abrir nota no Vault"
+            >
+              <BookOpen size={14} />
+            </button>
+          )}
+
+          {/* 5. Botão Editar */}
           <button
             type="button"
             onClick={(e) => {
@@ -604,37 +748,42 @@ export default function NoteItem({
           value={text}
           onChange={handleTextChange}
           onKeyDown={handleKeyDown}
-          onKeyDownCapture={(e) => {
-            if (isEditing) {
-              e.stopPropagation();
-              e.nativeEvent.stopImmediatePropagation();
-            }
-          }}
           onBlur={handleBlur}
           readOnly={!isEditing}
+          onSelect={() => {
+            if (!isEditing) {
+              window.getSelection()?.removeAllRanges();
+            }
+          }}
           placeholder="Digite sua nota..."
           className={cn(
             "w-full p-4 outline-none rounded-2xl font-medium leading-relaxed resize-none bg-transparent block transition-colors",
             isEditing 
               ? "prevent-item-drag cursor-text select-text" 
-              : "cursor-grab select-none"
+              : "cursor-grab select-none pointer-events-auto"
           )}
           style={{
             fontSize: note.fontSize || 15,
             textAlign: note.textAlign || 'left',
             minHeight: 110,
             color: textColor,
+            userSelect: isEditing ? 'text' : 'none',
           }}
         />
 
-        {note.vaultPath && (
-          <div
-            className="absolute bottom-1.5 right-2.5 flex items-center gap-1 text-[10px] opacity-40 hover:opacity-100 transition-opacity select-none pointer-events-none font-mono"
-            title={`Sincronizado com Vault: ${note.vaultPath}`}
+        {note.vaultPath && !isEditing && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              useVaultStore.getState().openDocument(note.vaultPath!);
+            }}
+            className="absolute bottom-1.5 right-2.5 flex items-center gap-1 text-[10px] text-stone-500/70 dark:text-neutral-400/70 hover:text-[#1831D7] dark:hover:text-[#7F95FF] hover:opacity-100 transition-all select-none cursor-pointer font-mono z-20 bg-white/80 dark:bg-black/40 px-1.5 py-0.5 rounded border border-black/5 dark:border-white/10 shadow-2xs"
+            title={`Abrir nota original no Vault: ${note.vaultPath}`}
           >
             <BookOpen size={10} />
             <span className="truncate max-w-[130px]">{note.vaultPath.split('/').pop()}</span>
-          </div>
+          </button>
         )}
       </div>
 

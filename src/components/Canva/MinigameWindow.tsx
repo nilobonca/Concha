@@ -5,6 +5,7 @@ import clsx from 'clsx';
 import { useMinigamesStore } from '@/store/minigamesStore';
 import { useCanvasGlobalStore } from '@/store/canvasStore';
 import { useViewportResize } from '@/hooks/useViewportResize';
+import { useSmoothHorizontalScroll } from '@/hooks/useSmoothHorizontalScroll';
 
 interface MinigameWindowProps {
   id: string;
@@ -13,6 +14,7 @@ interface MinigameWindowProps {
 }
 
 export const MinigameWindow: React.FC<MinigameWindowProps> = ({ id, title, children }) => {
+  const shortcutsStripRef = useSmoothHorizontalScroll<HTMLDivElement>({ speed: 1.15, easing: 0.16 });
   const { toggleMinimize, removeGame, activeGames, addGame } = useMinigamesStore();
   const menuZIndices = useCanvasGlobalStore(state => state.menuZIndices);
   const bringToFront = useCanvasGlobalStore(state => state.bringToFront);
@@ -201,7 +203,10 @@ export const MinigameWindow: React.FC<MinigameWindowProps> = ({ id, title, child
       </div>
 
       {/* Atalhos de Minigames Fixados Strip */}
-      <div className="px-3 py-1.5 border-b border-white/5 bg-black/40 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+      <div 
+        ref={shortcutsStripRef}
+        className="px-3 py-1.5 border-b border-white/5 bg-black/40 flex items-center gap-1.5 overflow-x-auto overflow-y-hidden no-scrollbar"
+      >
         <span className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500 mr-1 select-none flex items-center gap-1">
           <Gamepad2 size={11} className="text-[#7F95FF]" />
           Atalhos:

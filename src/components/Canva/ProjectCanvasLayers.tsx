@@ -56,6 +56,7 @@ export interface ProjectCanvasLayersProps {
   handleAreaDrag: (id: string, totalDx: number, totalDy: number) => void;
   setRenamingAreaId: (id: string | null) => void;
   handlePinDrag: (id: string, x: number, y: number, isDragging?: boolean) => void;
+  handleNoteDrag?: (id: string, x: number, y: number) => void;
   updateNotePersisted: (note: ActiveNote) => void;
   deleteNotePersisted: (id: string) => void;
   updateSoundboardItemPersisted: (item: ActiveSoundboardItem) => void;
@@ -102,6 +103,7 @@ export const ProjectCanvasLayers: React.FC<ProjectCanvasLayersProps> = ({
   handleAreaDrag,
   setRenamingAreaId,
   handlePinDrag,
+  handleNoteDrag,
   updateNotePersisted,
   deleteNotePersisted,
   updateSoundboardItemPersisted,
@@ -132,6 +134,7 @@ export const ProjectCanvasLayers: React.FC<ProjectCanvasLayersProps> = ({
               onPositionChange={(id, x, y) => changePositionImage(image, { x, y })}
               onDrag={handleImageDrag}
               onDragStart={handleGroupDragStart}
+              onSelect={(e: any) => handleMultiSelect(e, image.id)}
               rotation={croppingImageId === image.id ? 0 : (image.rotation || 0)}
             >
               <ImageItem
@@ -279,6 +282,7 @@ export const ProjectCanvasLayers: React.FC<ProjectCanvasLayersProps> = ({
               zIndex={index + 200}
               isSelected={selectedItemIds.has(note.id)}
               onPositionChange={(id, x, y) => updateNotePersisted({ ...note, position: { x, y } })}
+              onDrag={handleNoteDrag}
               onDragStart={handleGroupDragStart}
               onSelect={(e: any) => handleMultiSelect(e, note.id)}
             >
@@ -315,6 +319,7 @@ export const ProjectCanvasLayers: React.FC<ProjectCanvasLayersProps> = ({
               onPositionChange={(id, x, y) => updateSoundboardItemPersisted({ ...item, position: { x, y } })}
               onDrag={(id, x, y) => handleSoundboardItemDrag(id, x, y)}
               onDragStart={handleGroupDragStart}
+              onSelect={(e: any) => handleMultiSelect(e, item.id)}
             >
               <CanvasSoundboardItem
                 item={item}

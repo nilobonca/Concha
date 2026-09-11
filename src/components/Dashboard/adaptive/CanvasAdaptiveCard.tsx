@@ -143,7 +143,7 @@ export const CanvasAdaptiveCard: React.FC<CanvasAdaptiveCardProps> = ({
             )}
 
             {/* Sub-metrics */}
-            <div className="flex items-center gap-2 text-[10px] text-stone-400 dark:text-[#B4D3F1]/70 mt-1">
+            <div className="flex items-center gap-2 text-[10px] text-stone-600 dark:text-[#B4D3F1]/70 font-medium mt-1">
               <span>{isBoard ? 'Quadro Infinito' : `${pageCount} ${pageCount === 1 ? 'página' : 'páginas'}`}</span>
               <span>•</span>
               <span className="font-mono">#{canvas.id.slice(0, 6)}</span>

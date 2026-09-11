@@ -1,6 +1,7 @@
 import React from 'react';
 import { Layers, MapPin, Clock, X, ExternalLink, Folder, Music, Circle, Volume2 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useSmoothHorizontalScroll } from '@/hooks/useSmoothHorizontalScroll';
 
 interface DockedMenuProps {
     activeTab: 'layers' | 'pins' | 'history' | 'assets' | 'soundboard' | 'activePlayers' | 'globalTracks';
@@ -12,6 +13,7 @@ interface DockedMenuProps {
 }
 
 export default function DockedMenu({ activeTab, onTabChange, onClose, onUndock, dockedItems, children }: DockedMenuProps) {
+    const tabsContainerRef = useSmoothHorizontalScroll<HTMLDivElement>({ speed: 1.15, easing: 0.16 });
     const tabs: { id: DockedMenuProps['activeTab']; label: string; icon: React.ReactNode; activeColor: string }[] = [
         { id: 'layers', label: 'Camadas', icon: <Layers size={18} />, activeColor: 'text-blue-400' },
         { id: 'pins', label: 'Pins Espaciais', icon: <MapPin size={18} />, activeColor: 'text-amber-400' },
@@ -26,7 +28,10 @@ export default function DockedMenu({ activeTab, onTabChange, onClose, onUndock, 
         <div className="flex flex-col h-full bg-neutral-900/90 dark:bg-neutral-950/90 backdrop-blur-2xl border-r border-white/10 w-80 shadow-2xl z-50 transition-all duration-300">
             {/* Header / Tabs */}
             <div className="flex items-center justify-between p-2.5 border-b border-white/10 bg-neutral-950/40">
-                <div className="flex gap-1 overflow-x-auto no-scrollbar scrollbar-none py-0.5">
+                <div 
+                    ref={tabsContainerRef}
+                    className="flex gap-1 overflow-x-auto overflow-y-hidden no-scrollbar scrollbar-none py-0.5"
+                >
                     {tabs.map((tab) => {
                         if (!dockedItems.has(tab.id)) return null;
                         const isActive = activeTab === tab.id;

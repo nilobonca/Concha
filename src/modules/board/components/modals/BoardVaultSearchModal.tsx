@@ -3,6 +3,7 @@ import { useVaultStore } from '@/modules/vault/hooks/useVaultStore';
 import { useIDB } from '@/utils/indexedDB';
 import { AudioData, ImageData, CanvasPreviewData } from '../../types';
 import { Search, FileText, Music, Image as ImageIcon, FolderKanban, CornerDownLeft, Upload, Plus } from 'lucide-react';
+import { useSmoothHorizontalScroll } from '@/hooks/useSmoothHorizontalScroll';
 
 export type VaultSearchCategory = 'all' | 'notes' | 'audio' | 'image' | 'canvas';
 
@@ -34,6 +35,7 @@ export const BoardVaultSearchModal: React.FC<BoardVaultSearchModalProps> = ({
   onSelectImage,
   onSelectCanvas,
 }) => {
+  const categoryTabsRef = useSmoothHorizontalScroll<HTMLDivElement>({ speed: 1.15, easing: 0.16 });
   const { getAllFiles, createFile, saveMediaFile, getFileUrl, vaultName } = useVaultStore();
   const { savedAudios, savedImages, activeLayers, saveAudio, saveImage } = useIDB();
 
@@ -246,7 +248,8 @@ export const BoardVaultSearchModal: React.FC<BoardVaultSearchModalProps> = ({
         imageInputRef.current?.click();
       } else if (item.actionType === 'create-note') {
         const newPath = await createFile('', query.trim());
-        onSelectNote({ path: newPath, name: query.trim() });
+        const cleanName = newPath.split('/').pop()?.replace(/\.(md|txt)$/i, '') || query.trim();
+        onSelectNote({ path: newPath, name: cleanName });
         onClose();
       }
     }
@@ -377,7 +380,10 @@ export const BoardVaultSearchModal: React.FC<BoardVaultSearchModalProps> = ({
         </div>
 
         {/* Category Pills */}
-        <div className="flex items-center gap-1.5 px-5 py-2 border-b border-neutral-800/40 bg-neutral-900/20 overflow-x-auto text-[11px]">
+        <div 
+          ref={categoryTabsRef}
+          className="flex items-center gap-1.5 px-5 py-2 border-b border-neutral-800/40 bg-neutral-900/20 overflow-x-auto overflow-y-hidden no-scrollbar text-[11px]"
+        >
           {(
             [
               { key: 'all', label: 'Todos' },

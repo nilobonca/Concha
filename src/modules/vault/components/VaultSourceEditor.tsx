@@ -1,4 +1,5 @@
 import React, { useRef, useEffect } from 'react';
+import { handleTextareaFormattingShortcut, handleTextareaAutoPairing } from '@/utils/textareaFormatting';
 
 interface VaultSourceEditorProps {
   value: string;
@@ -18,6 +19,16 @@ export const VaultSourceEditor: React.FC<VaultSourceEditorProps> = ({ value, onC
   }, [value]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // 1. Atalhos de formatação (Ctrl+B, Ctrl+I, Ctrl+Shift+S, Ctrl+H, Ctrl+E)
+    if (handleTextareaFormattingShortcut(e, onChange)) {
+      return;
+    }
+
+    // 2. Auto-pairing ao digitar pontuação sobre seleção (*, _, ~, =, `, etc.)
+    if (handleTextareaAutoPairing(e, onChange)) {
+      return;
+    }
+
     // Handle Tab key to insert 2 spaces instead of changing focus
     if (e.key === 'Tab') {
       e.preventDefault();

@@ -260,7 +260,7 @@ export function EditableWall({
                     style={{ cursor: isGroupSelected ? 'move' : 'pointer', pointerEvents: 'stroke' }}
                     onClick={e => {
                         e.stopPropagation();
-                        const isCtrlPressed = e.ctrlKey || e.metaKey;
+                        const isCtrlPressed = e.ctrlKey || e.metaKey || e.shiftKey;
                         if (selectedAtMouseDown.current) {
                             if (isCtrlPressed) {
                                 if (onSelect) onSelect(e);
