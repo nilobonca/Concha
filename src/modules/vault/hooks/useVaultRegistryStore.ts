@@ -122,26 +122,28 @@ export const useVaultRegistryStore = create<VaultRegistryStore>((set) => ({
         const diskData = await window.electronAPI.loadVaultsRegistry();
         if (diskData && Array.isArray(diskData.vaults) && diskData.vaults.length > 0) {
           // Funde os registros do disco com os do localStorage sem perder nenhum vault
-          const merged = mergeVaultLists(localVaults, diskData.vaults);
+          const merged = mergeVaultLists(diskData.vaults, localVaults);
           set({ vaults: merged, isLoaded: true });
 
           // Atualiza o localStorage com o resultado consolidado
           localStorage.setItem(VAULT_REGISTRY_KEY, JSON.stringify(merged));
 
-          // Restaura activeVaultId se não houver um salvo localmente
-          if (diskData.activeVaultId && !localStorage.getItem('vault_active_id')) {
+          // Restaura activeVaultId se não houver um salvo localmente ou se estiver no cofre padrão
+          const currentLocalActive = localStorage.getItem('vault_active_id');
+          if (diskData.activeVaultId && (!currentLocalActive || currentLocalActive === 'default-vault')) {
             localStorage.setItem('vault_active_id', diskData.activeVaultId);
           }
 
-          // Se o merge encontrou novos itens em relação ao disco, atualiza o arquivo físico
-          if (merged.length !== diskData.vaults.length) {
+          // Se o merge encontrou novos itens válidos em relação ao disco, atualiza o arquivo físico
+          const nonDefaultLocal = localVaults.filter(v => !v.isDefault);
+          if (nonDefaultLocal.length > 0 && merged.length > diskData.vaults.length) {
             window.electronAPI.saveVaultsRegistry({
               vaults: merged,
               activeVaultId: diskData.activeVaultId || localStorage.getItem('vault_active_id') || undefined,
             }).catch(() => {});
           }
-        } else if (localVaults.length > 0) {
-          // Primeiro uso no Electron: o arquivo em disco ainda não existia, salva os vaults locais nele
+        } else if (localVaults.length > 0 && localVaults.some(v => !v.isDefault)) {
+          // Salva no disco apenas se houver cofres reais criados pelo usuário
           window.electronAPI.saveVaultsRegistry({
             vaults: localVaults,
             activeVaultId: localStorage.getItem('vault_active_id') || undefined,

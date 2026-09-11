@@ -29,8 +29,8 @@ const DEFAULT_IMAGE_HEIGHT = 200;
 const DEFAULT_PREVIEW_WIDTH = 260;
 const DEFAULT_PREVIEW_HEIGHT = 150;
 
-export function useBoardCanvas(boardId: string, initialName?: string) {
-  const { boardData, setBoardData, persistBoard, isLoading, flushSave } = useBoardStorage(boardId, initialName);
+export function useBoardCanvas(boardId: string, initialName?: string, folderPath?: string | null) {
+  const { boardData, setBoardData, persistBoard, isLoading, flushSave } = useBoardStorage(boardId, initialName, folderPath);
 
   const [selectedElementIds, setSelectedElementIds] = useState<Set<string>>(new Set());
   const selectedElementId = selectedElementIds.size === 1 ? Array.from(selectedElementIds)[0] : (selectedElementIds.size > 0 ? Array.from(selectedElementIds)[selectedElementIds.size - 1] : null);

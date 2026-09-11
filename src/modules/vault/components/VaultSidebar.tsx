@@ -8,7 +8,9 @@ import ContextMenu from '@/components/ContextMenu';
 import { VaultGeneralCanvasesTab } from './sidebar/VaultGeneralCanvasesTab';
 import { useIDB } from '@/utils/indexedDB';
 import { Layer } from '@/interfaces/utils/indexedDB';
-import { updateBoardNameInIDB } from '@/modules/board/hooks/useBoardStorage';
+import { updateBoardNameInIDB, saveBoardDataToStorage, getBoardDataFromStorage } from '@/modules/board/hooks/useBoardStorage';
+import { BoardData } from '@/modules/board/types';
+import { saveCanvasToDisk, renameCanvasOnDisk, moveCanvasOnDisk, deleteCanvasFromDisk } from '../utils/canvasDiskSync';
 import { saveUserTemplate } from '../utils/templateStore';
 import { v4 as uuidv4 } from 'uuid';
 import { 
@@ -204,6 +206,11 @@ export const VaultSidebar: React.FC = () => {
       const c = allCanvases.find(item => item.id === canvasId);
       if (c) {
         if (skipConfirm) {
+          if (c.canvasType === 'board') {
+            deleteCanvasFromDisk(provider, c.folderPath, c.name).then(() => {
+              refreshNodes();
+            });
+          }
           deleteLayer(c.id);
           closeTab(`canvas:${c.id}`);
           return;
@@ -414,7 +421,37 @@ export const VaultSidebar: React.FC = () => {
   };
 
 
-  const handleCreateBoardCanvas = (targetFolderPath: string | null = null) => {
+  const handleCreateBoardCanvas = async (targetFolderPath: string | null = null) => {
+    let resolvedFolder: string = targetFolderPath ?? '';
+    if (!resolvedFolder) {
+      if (selectedPath && !selectedPath.startsWith('canvas:')) {
+        const selectedNode = findNodeByPath(nodes, selectedPath);
+        if (selectedNode?.type === 'folder') {
+          resolvedFolder = selectedNode.path;
+        } else if (selectedPath.includes('/')) {
+          resolvedFolder = selectedPath.slice(0, selectedPath.lastIndexOf('/'));
+        }
+      } else if (activePath && !activePath.startsWith('canvas:') && activePath.includes('/')) {
+        resolvedFolder = activePath.slice(0, activePath.lastIndexOf('/'));
+      }
+    }
+
+    let { provider, initializeStorage } = useVaultStore.getState();
+    if (!provider) {
+      await initializeStorage();
+      provider = useVaultStore.getState().provider;
+    }
+
+    if (useVaultStore.getState().storageType === 'fsa' && provider instanceof FSAStorageProvider) {
+      if (!provider.isConnected) {
+        await provider.reconnect();
+      }
+      if (provider.isConnected && !useVaultStore.getState().isConnected) {
+        useVaultStore.setState({ isConnected: true, vaultName: provider.vaultName });
+        await useVaultStore.getState().refreshNodes();
+      }
+    }
+
     let newName = 'Quadro de Conexões 1';
     let counter = 1;
     const existingNames = new Set(allCanvases.map(p => p.name.trim()));
@@ -437,11 +474,35 @@ export const VaultSidebar: React.FC = () => {
       projectId: newProjectId,
       order: 0,
       canvasType: 'board',
-      folderPath: targetFolderPath,
+      folderPath: resolvedFolder,
       vaultId: vaultId || 'default-vault',
       vaultName: vaultName || 'Meu Vault',
     };
     addLayer(projectMeta);
+
+    const initialData: BoardData = {
+      id: newProjectId,
+      name: newName,
+      elements: [],
+      connections: [],
+      updatedAt: new Date().toISOString(),
+    };
+    await saveBoardDataToStorage(initialData, resolvedFolder);
+
+    const currentProvider = useVaultStore.getState().provider;
+    if (currentProvider && currentProvider.isConnected) {
+      await saveCanvasToDisk(currentProvider, resolvedFolder, newName, initialData);
+      await refreshNodes();
+    }
+
+    // Auto-expande a pasta destino para que o novo canvas fique visível imediatamente
+    if (resolvedFolder) {
+      if (!expandedFolders.has(resolvedFolder)) {
+        toggleFolder(resolvedFolder);
+      }
+    }
+    setSelectedPath(`canvas:${newProjectId}`);
+
     openCanvasTab(newProjectId, newName);
   };
 
@@ -570,6 +631,20 @@ export const VaultSidebar: React.FC = () => {
   };
 
   const handleCreateAudioCanvas = (targetFolderPath: string | null = null) => {
+    let resolvedFolder = targetFolderPath;
+    if (resolvedFolder === null) {
+      if (selectedPath && !selectedPath.startsWith('canvas:')) {
+        const selectedNode = findNodeByPath(nodes, selectedPath);
+        if (selectedNode?.type === 'folder') {
+          resolvedFolder = selectedNode.path;
+        } else if (selectedPath.includes('/')) {
+          resolvedFolder = selectedPath.slice(0, selectedPath.lastIndexOf('/'));
+        }
+      } else if (activePath && !activePath.startsWith('canvas:') && activePath.includes('/')) {
+        resolvedFolder = activePath.slice(0, activePath.lastIndexOf('/'));
+      }
+    }
+
     let newName = 'Canvas de Áudio 1';
     let counter = 1;
     const existingNames = new Set(allCanvases.map(p => p.name.trim()));
@@ -592,7 +667,7 @@ export const VaultSidebar: React.FC = () => {
       projectId: newProjectId,
       order: 0,
       canvasType: 'audio',
-      folderPath: targetFolderPath,
+      folderPath: resolvedFolder,
       vaultId: vaultId || 'default-vault',
       vaultName: vaultName || 'Meu Vault',
     };
@@ -611,6 +686,13 @@ export const VaultSidebar: React.FC = () => {
       order: 0
     };
     addLayer(newPage);
+
+    if (resolvedFolder) {
+      if (!expandedFolders.has(resolvedFolder)) {
+        toggleFolder(resolvedFolder);
+      }
+    }
+    setSelectedPath(`canvas:${newProjectId}`);
 
     router.push(`/project/${newProjectId}`);
   };
@@ -717,12 +799,15 @@ export const VaultSidebar: React.FC = () => {
       };
       pNodes = findChildren(nodes) || [];
     }
+    const filteredPNodes = pNodes.filter(
+      n => !(n.type === 'file' && (n.extension === 'canvas' || n.name.toLowerCase().endsWith('.canvas')))
+    );
     const pCanvases = p === '__GENERAL_CANVASES__'
       ? allCanvases.filter(c => !c.folderPath)
       : allCanvases.filter(c => (c.folderPath || '') === p || (p === '' && c.folderPath === '__ROOT__'));
 
     const items: TreeItem[] = [
-      ...pNodes.map(n => ({ kind: 'node' as const, id: n.path, node: n })),
+      ...filteredPNodes.map(n => ({ kind: 'node' as const, id: n.path, node: n })),
       ...pCanvases.map(c => ({ kind: 'canvas' as const, id: `canvas:${c.id}`, canvas: c }))
     ];
 
@@ -877,6 +962,11 @@ export const VaultSidebar: React.FC = () => {
         const oldFolder = draggedCanvas.folderPath || '';
         if (oldFolder !== targetFolderPath) {
           updateLayer({ ...draggedCanvas, folderPath: targetFolderPath });
+          if (draggedCanvas.canvasType === 'board') {
+            moveCanvasOnDisk(provider, oldFolder, targetFolderPath, draggedCanvas.name, () => getBoardDataFromStorage(draggedCanvas.id)).then(() => {
+              refreshNodes();
+            });
+          }
         }
         if (!expandedFolders.has(targetFolderPath)) {
           toggleFolder(targetFolderPath);
@@ -945,8 +1035,14 @@ export const VaultSidebar: React.FC = () => {
       setDraggedNode(null);
     } else if (draggedCanvas) {
       const oldFolder = draggedCanvas.folderPath || '';
-      if (oldFolder !== targetParent) {
-        updateLayer({ ...draggedCanvas, folderPath: targetParent === '' ? '' : targetParent });
+      const destFolder = targetParent === '' ? '' : targetParent;
+      if (oldFolder !== destFolder) {
+        updateLayer({ ...draggedCanvas, folderPath: destFolder });
+        if (draggedCanvas.canvasType === 'board') {
+          moveCanvasOnDisk(provider, oldFolder, destFolder, draggedCanvas.name, () => getBoardDataFromStorage(draggedCanvas.id)).then(() => {
+            refreshNodes();
+          });
+        }
       }
 
       const canvasKey = `canvas:${draggedCanvas.id}`;
@@ -1011,7 +1107,13 @@ export const VaultSidebar: React.FC = () => {
       setDraggedNode(null);
     } else if (draggedCanvas) {
       if (draggedCanvas.folderPath) {
+        const oldFolder = draggedCanvas.folderPath;
         updateLayer({ ...draggedCanvas, folderPath: '' });
+        if (draggedCanvas.canvasType === 'board') {
+          moveCanvasOnDisk(provider, oldFolder, '', draggedCanvas.name, () => getBoardDataFromStorage(draggedCanvas.id)).then(() => {
+            refreshNodes();
+          });
+        }
       }
       const canvasKey = `canvas:${draggedCanvas.id}`;
       const currentKeys = getExistingKeysInParent('').filter(k => k !== canvasKey);
@@ -1225,6 +1327,8 @@ export const VaultSidebar: React.FC = () => {
               <Music className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400 shrink-0" />
             ) : node.fileType === 'image' ? (
               <ImageIcon className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            ) : node.fileType === 'canvas' || node.extension === 'canvas' || node.name.toLowerCase().endsWith('.canvas') ? (
+              <FolderKanban className="w-3.5 h-3.5 text-[#1831D7] dark:text-[#7F95FF] shrink-0" />
             ) : node.fileType === 'file' ? (
               <File className="w-3.5 h-3.5 text-amber-600/80 dark:text-amber-400/80 shrink-0" />
             ) : (
@@ -1238,10 +1342,12 @@ export const VaultSidebar: React.FC = () => {
                     ? node.name
                     : (node.fileType === 'note' || (!node.fileType && (node.name.endsWith('.md') || node.name.endsWith('.txt'))))
                       ? node.name.replace(/\.(md|txt)$/i, '')
-                      : (() => {
-                          const lastDot = node.name.lastIndexOf('.');
-                          return lastDot > 0 ? node.name.slice(0, lastDot) : node.name;
-                        })()
+                      : (node.fileType === 'canvas' || node.extension === 'canvas' || node.name.toLowerCase().endsWith('.canvas'))
+                        ? node.name.replace(/\.canvas$/i, '')
+                        : (() => {
+                            const lastDot = node.name.lastIndexOf('.');
+                            return lastDot > 0 ? node.name.slice(0, lastDot) : node.name;
+                          })()
                 }
                 isFolder={isFolder}
                 onSubmit={(newName) => handleRenameNodeSubmit(node, newName)}
@@ -1251,7 +1357,9 @@ export const VaultSidebar: React.FC = () => {
               <span className="truncate text-xs">
                 {node.fileType === 'note' || (!node.fileType && (node.name.endsWith('.md') || node.name.endsWith('.txt')))
                   ? node.name.replace(/\.(md|txt)$/i, '')
-                  : node.name}
+                  : (node.fileType === 'canvas' || node.extension === 'canvas' || node.name.toLowerCase().endsWith('.canvas'))
+                    ? node.name.replace(/\.canvas$/i, '')
+                    : node.name}
               </span>
             )}
           </div>
@@ -1296,8 +1404,19 @@ export const VaultSidebar: React.FC = () => {
       return true;
     });
 
+    const childCanvasNames = new Set(
+      childCanvases.map(c => `${c.name.toLowerCase().replace(/\.canvas$/i, '')}.canvas`)
+    );
+
+    const filteredChildNodes = childNodes.filter(n => {
+      if (n.type === 'file' && (n.extension === 'canvas' || n.name.toLowerCase().endsWith('.canvas'))) {
+        return !childCanvasNames.has(n.name.toLowerCase());
+      }
+      return true;
+    });
+
     const items: TreeItem[] = [
-      ...childNodes.map(n => ({ kind: 'node' as const, id: n.path, node: n })),
+      ...filteredChildNodes.map(n => ({ kind: 'node' as const, id: n.path, node: n })),
       ...childCanvases.map(c => ({ kind: 'canvas' as const, id: `canvas:${c.id}`, canvas: c }))
     ];
 
@@ -1335,7 +1454,14 @@ export const VaultSidebar: React.FC = () => {
           label: 'Mover para a Caixa de Canvas Gerais',
           icon: <Box size={16} className="text-amber-400" />,
           onClick: () => {
+            const oldFolder = c.folderPath;
             updateLayer({ ...c, folderPath: null });
+            setSelectedPath(`canvas:${c.id}`);
+            if (c.canvasType === 'board') {
+              moveCanvasOnDisk(provider, oldFolder, null, c.name, () => getBoardDataFromStorage(c.id)).then(() => {
+                refreshNodes();
+              });
+            }
           }
         }] : []),
         {
@@ -1345,17 +1471,47 @@ export const VaultSidebar: React.FC = () => {
           subMenu: [
             ...(c.folderPath ? [{
               label: 'Caixa de Canvas Gerais',
-              onClick: () => updateLayer({ ...c, folderPath: null })
+              onClick: () => {
+                const oldFolder = c.folderPath;
+                updateLayer({ ...c, folderPath: null });
+                setSelectedPath(`canvas:${c.id}`);
+                if (c.canvasType === 'board') {
+                  moveCanvasOnDisk(provider, oldFolder, null, c.name, () => getBoardDataFromStorage(c.id)).then(() => {
+                    refreshNodes();
+                  });
+                }
+              }
             }] : []),
             {
               label: 'Raiz do Vault',
-              onClick: () => updateLayer({ ...c, folderPath: '' })
+              onClick: () => {
+                const oldFolder = c.folderPath;
+                updateLayer({ ...c, folderPath: '' });
+                setSelectedPath(`canvas:${c.id}`);
+                if (c.canvasType === 'board') {
+                  moveCanvasOnDisk(provider, oldFolder, '', c.name, () => getBoardDataFromStorage(c.id)).then(() => {
+                    refreshNodes();
+                  });
+                }
+              }
             },
             ...allFolders
               .filter(f => f !== c.folderPath)
               .map(folder => ({
                 label: folder,
-                onClick: () => updateLayer({ ...c, folderPath: folder })
+                onClick: () => {
+                  const oldFolder = c.folderPath;
+                  updateLayer({ ...c, folderPath: folder });
+                  if (!expandedFolders.has(folder)) {
+                    toggleFolder(folder);
+                  }
+                  setSelectedPath(`canvas:${c.id}`);
+                  if (c.canvasType === 'board') {
+                    moveCanvasOnDisk(provider, oldFolder, folder, c.name, () => getBoardDataFromStorage(c.id)).then(() => {
+                      refreshNodes();
+                    });
+                  }
+                }
               }))
           ]
         },
@@ -1372,10 +1528,15 @@ export const VaultSidebar: React.FC = () => {
               onConfirm: async (newName) => {
                 const trimmed = newName?.trim();
                 if (trimmed && trimmed !== c.name) {
+                  const oldName = c.name;
                   updateLayer({ ...c, name: trimmed });
                   useVaultStore.getState().updateCanvasTitleInTabs(c.id, trimmed);
                   if (c.canvasType === 'board') {
                     await updateBoardNameInIDB(c.id, trimmed);
+                    if (provider && provider.isConnected) {
+                      await renameCanvasOnDisk(provider, c.folderPath || '', oldName, trimmed);
+                      refreshNodes();
+                    }
                   }
                   if (typeof window !== 'undefined') {
                     window.dispatchEvent(new CustomEvent('canvas_renamed', {
@@ -1855,6 +2016,11 @@ export const VaultSidebar: React.FC = () => {
         onConfirm={async () => {
           if (deleteTarget) {
             if (deleteTarget.itemType === 'canvas' && deleteTarget.canvasId) {
+              const c = allCanvases.find(item => item.id === deleteTarget.canvasId);
+              if (c && c.canvasType === 'board') {
+                await deleteCanvasFromDisk(provider, c.folderPath, c.name);
+                refreshNodes();
+              }
               deleteLayer(deleteTarget.canvasId);
               closeTab(`canvas:${deleteTarget.canvasId}`);
             } else {

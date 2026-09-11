@@ -18,7 +18,7 @@ export interface VaultNode {
   name: string;
   path: string; // Relative path inside vault, e.g. "NPCs/Strahd.md" or "Quests"
   type: 'file' | 'folder';
-  fileType?: 'note' | 'audio' | 'image' | 'file';
+  fileType?: 'note' | 'audio' | 'image' | 'file' | 'canvas';
   children?: VaultNode[];
   extension?: string;
   size?: number;

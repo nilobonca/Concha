@@ -136,15 +136,28 @@ export const IDBProvider = ({ children }: { children: ReactNode }) => {
         flushTimeoutRef.current = null;
     }, []);
 
+    // Garante que atualizações pendentes sejam salvas caso a janela seja fechada ou recarregada (F5)
+    React.useEffect(() => {
+        const handleBeforeUnload = () => {
+            flushUpdates();
+        };
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }, [flushUpdates]);
+
     // We must pass isPreviewModeRef down to hooks manually, because hooks will use it.
     // useIDBPreview manages its state, but we can hoist the ref.
     const isPreviewModeRef = useRef(false);
 
-    const updateItemPersisted = useCallback((item: any, type: string) => {
+    const updateItemPersisted = useCallback((item: any, type: string, immediate: boolean = false) => {
         if (isPreviewModeRef.current) return;
         pendingUpdatesRef.current.set(item.id, item);
         if (flushTimeoutRef.current) clearTimeout(flushTimeoutRef.current);
-        flushTimeoutRef.current = setTimeout(flushUpdates, 300);
+        if (immediate) {
+            flushUpdates();
+        } else {
+            flushTimeoutRef.current = setTimeout(flushUpdates, 300);
+        }
     }, [flushUpdates]);
 
     const deleteItemPersisted = useCallback((id: string) => {

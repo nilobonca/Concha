@@ -167,3 +167,22 @@ export function isValidVaultFileName(name: string): boolean {
   if (WINDOWS_RESERVED_NAMES.has(base)) return false;
   return true;
 }
+
+import type { VaultNode } from '../interfaces/vault';
+
+/**
+ * Extrai recursivamente todos os caminhos de pastas a partir de uma lista de nós do Vault.
+ */
+export function extractFolders(nodeList: VaultNode[]): string[] {
+  const list: string[] = [];
+  const traverse = (items: VaultNode[]) => {
+    for (const item of items) {
+      if (item.type === 'folder') {
+        list.push(item.path);
+        if (item.children) traverse(item.children);
+      }
+    }
+  };
+  traverse(nodeList);
+  return list;
+}

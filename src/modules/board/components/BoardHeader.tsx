@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
-import { ArrowLeft, Check, Edit2, FolderKanban, Folder, Box } from 'lucide-react';
+import { ArrowLeft, Check, Edit2, FolderKanban, Folder, Box, ChevronDown } from 'lucide-react';
+import clsx from 'clsx';
 import { WindowControls } from '@/components/common/WindowControls';
 import { isElectron } from '@/utils/electronHelper';
+import { BoardFolderPickerDropdown } from './BoardFolderPickerDropdown';
 
 interface BoardHeaderProps {
   boardName: string;
@@ -13,6 +15,8 @@ interface BoardHeaderProps {
   onCloseEmbedded?: () => void;
   folderPath?: string | null;
   onMoveToGeneral?: () => void;
+  allFolders?: string[];
+  onSelectFolder?: (folderPath: string | null) => void;
 }
 
 export const BoardHeader: React.FC<BoardHeaderProps> = ({
@@ -24,11 +28,14 @@ export const BoardHeader: React.FC<BoardHeaderProps> = ({
   onCloseEmbedded,
   folderPath,
   onMoveToGeneral,
+  allFolders,
+  onSelectFolder,
 }) => {
   const router = useRouter();
   const [isEditing, setIsEditing] = useState(false);
   const [tempName, setTempName] = useState(boardName);
   const [isElec, setIsElec] = useState(false);
+  const [isFolderPickerOpen, setIsFolderPickerOpen] = useState(false);
 
   useEffect(() => {
     setIsElec(isElectron());
@@ -114,27 +121,57 @@ export const BoardHeader: React.FC<BoardHeaderProps> = ({
           </div>
         )}
 
-        {/* Localização da Pasta / Baú de Canvas */}
-        {folderPath ? (
-          <div className="badge-pastel-lavender flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold">
-            <Folder className="w-3 h-3" />
-            <span className="truncate max-w-[130px]">{folderPath}</span>
-            {onMoveToGeneral && (
-              <button
-                onClick={onMoveToGeneral}
-                className="ml-1 p-0.5 hover:bg-black/10 dark:hover:bg-white/20 rounded transition-colors"
-                title="Mover para o Baú de Canvas"
-              >
-                <Box className="w-3 h-3" />
-              </button>
+        {/* Localização da Pasta / Baú de Canvas com Dropdown Seletor */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => onSelectFolder && setIsFolderPickerOpen((prev) => !prev)}
+            className={clsx(
+              "flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold transition-all group",
+              folderPath !== null && folderPath !== undefined
+                ? "badge-pastel-lavender"
+                : "badge-pastel-amber",
+              onSelectFolder && "cursor-pointer hover:opacity-85 ring-1 ring-transparent hover:ring-black/10 dark:hover:ring-white/15"
             )}
-          </div>
-        ) : (
-          <span className="badge-pastel-amber text-[11px] font-semibold px-2.5 py-0.5 rounded-full flex items-center gap-1">
-            <Box className="w-3 h-3" />
-            <span>Baú de Canvas</span>
-          </span>
-        )}
+            title={onSelectFolder ? "Clique para alterar a pasta deste Canvas" : undefined}
+          >
+            {folderPath !== null && folderPath !== undefined ? (
+              <>
+                <Folder className="w-3 h-3 text-[#1831D7] dark:text-[#7F95FF]" />
+                <span className="truncate max-w-[130px]">
+                  {folderPath === '' ? 'Raiz do Vault' : folderPath}
+                </span>
+              </>
+            ) : (
+              <>
+                <Box className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+                <span>Baú de Canvas</span>
+              </>
+            )}
+
+            {onSelectFolder && (
+              <ChevronDown
+                className={clsx(
+                  "w-3 h-3 opacity-60 transition-transform duration-150",
+                  isFolderPickerOpen && "rotate-180"
+                )}
+              />
+            )}
+          </button>
+
+          {onSelectFolder && (
+            <BoardFolderPickerDropdown
+              isOpen={isFolderPickerOpen}
+              onClose={() => setIsFolderPickerOpen(false)}
+              currentFolder={folderPath ?? null}
+              allFolders={allFolders || []}
+              onSelectFolder={(newFolder) => {
+                onSelectFolder(newFolder);
+                setIsFolderPickerOpen(false);
+              }}
+            />
+          )}
+        </div>
 
         {/* Badge do Tipo de Canvas */}
         <span className="badge-pastel-lavender text-[11px] font-semibold px-2.5 py-0.5 rounded-full flex items-center gap-1">

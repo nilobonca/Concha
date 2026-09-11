@@ -372,41 +372,123 @@ function getVaultsFilePath() {
   return path.join(app.getPath('userData'), VAULTS_FILE_NAME);
 }
 
-// Scans LevelDB logs from previous ephemeral port runs to recover any vaults registered in earlier updates
-function recoverVaultsFromLevelDB() {
-  try {
-    const leveldbDir = path.join(app.getPath('userData'), 'Local Storage', 'leveldb');
-    if (!fs.existsSync(leveldbDir)) return null;
+// Helper to resolve or verify physical paths for local vaults
+function resolveVaultPhysicalPath(vault) {
+  if (vault.storageType === 'idb' || vault.id === 'default-vault') return undefined;
+  if (vault.path && fs.existsSync(vault.path)) return vault.path;
 
-    const files = fs.readdirSync(leveldbDir).filter(f => f.endsWith('.log') || f.endsWith('.ldb'));
-    const vaultMap = new Map();
+  const namesToTry = [];
+  if (vault.folderName) namesToTry.push(vault.folderName);
+  if (vault.name && vault.name !== 'Vault' && vault.name !== 'Meu Vault Local') namesToTry.push(vault.name);
+  if (vault.id === 'fsa-ad34920d' || vault.id === 'fsa-main') namesToTry.push('boncanotes');
 
-    for (const f of files) {
+  const userProfile = process.env.USERPROFILE || '';
+  const baseDirs = [
+    'G:\\My Drive',
+    path.join(userProfile, 'Desktop'),
+    path.join(userProfile, 'Documents'),
+    path.join(userProfile, 'OneDrive'),
+    'D:\\',
+    'D:\\Projetos'
+  ].filter(Boolean);
+
+  for (const base of baseDirs) {
+    for (const name of namesToTry) {
       try {
-        const filePath = path.join(leveldbDir, f);
-        const content = fs.readFileSync(filePath, 'latin1');
-        const regex = /rpgsa_registered_vaults[^\x5b]*(\[\s*\{.*?\}\s*\])/g;
-        let match;
-        while ((match = regex.exec(content)) !== null) {
-          try {
-            const parsed = JSON.parse(match[1]);
-            if (Array.isArray(parsed)) {
-              for (const v of parsed) {
-                if (!v || !v.id) continue;
-                const existing = vaultMap.get(v.id);
-                if (!existing || (v.updatedAt || 0) >= (existing.updatedAt || 0)) {
-                  vaultMap.set(v.id, v);
-                }
-              }
-            }
-          } catch {}
+        const candidate = path.join(base, name);
+        if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
+          return candidate;
         }
       } catch {}
+    }
+  }
+  return vault.path || undefined;
+}
+
+// Scans LevelDB logs across all possible app data folders (current and legacy) to recover any vaults registered in earlier versions
+function recoverVaultsFromLevelDB() {
+  try {
+    const vaultMap = new Map();
+    const appData = app.getPath('appData');
+    const candidateUserDataDirs = [
+      app.getPath('userData'),
+      path.join(appData, 'Concha'),
+      path.join(appData, 'rpg-sound-util'),
+      path.join(appData, 'supercanvas')
+    ].filter((dir, idx, self) => fs.existsSync(dir) && self.indexOf(dir) === idx);
+
+    for (const userDir of candidateUserDataDirs) {
+      const leveldbDir = path.join(userDir, 'Local Storage', 'leveldb');
+      if (!fs.existsSync(leveldbDir)) continue;
+
+      const files = fs.readdirSync(leveldbDir).filter(f => f.endsWith('.log') || f.endsWith('.ldb'));
+      for (const f of files) {
+        try {
+          const filePath = path.join(leveldbDir, f);
+          const content = fs.readFileSync(filePath, 'latin1');
+
+          // 1. Try standard JSON array matches
+          const arrayRegex = /\[\s*\{[^{}]*"id"[^{}]*\}\s*(?:,\s*\{[^{}]*"id"[^{}]*\}\s*)*\]/g;
+          let arrMatch;
+          while ((arrMatch = arrayRegex.exec(content)) !== null) {
+            try {
+              const list = JSON.parse(arrMatch[0]);
+              if (Array.isArray(list)) {
+                for (const v of list) {
+                  if (!v || !v.id) continue;
+                  const existing = vaultMap.get(v.id);
+                  if (!existing || (v.updatedAt || 0) >= (existing.updatedAt || 0)) {
+                    vaultMap.set(v.id, v);
+                  }
+                }
+              }
+            } catch {}
+          }
+
+          // 2. Resilient object-level extractor (bypasses binary control character corruption in LevelDB sstables)
+          const objRegex = /\{[^{}]*"(?:id|name|storageType)"[^{}]*\}/g;
+          let objMatch;
+          while ((objMatch = objRegex.exec(content)) !== null) {
+            const rawObj = objMatch[0];
+            const idMatch = rawObj.match(/"id"\s*:\s*"([^"]+)"/);
+            if (!idMatch) continue;
+            const id = idMatch[1];
+            if (!id.startsWith('fsa-') && id !== 'default-vault') continue;
+
+            const nameMatch = rawObj.match(/"name"\s*:\s*"([^"]+)"/);
+            const storageTypeMatch = rawObj.match(/"storageType"\s*:\s*"([^"]+)"/);
+            const folderNameMatch = rawObj.match(/"folderName"\s*:\s*"([^"]+)"/);
+            const pathMatch = rawObj.match(/"path"\s*:\s*"([^"]+)"/);
+            const updatedAtMatch = rawObj.match(/"updatedAt"\s*:\s*(\d+)/);
+            const isDefaultMatch = rawObj.match(/"isDefault"\s*:\s*(true|false)/);
+
+            const existing = vaultMap.get(id);
+            const updatedAt = updatedAtMatch ? Number(updatedAtMatch[1]) : (existing?.updatedAt || 0);
+
+            if (!existing || updatedAt >= (existing.updatedAt || 0)) {
+              vaultMap.set(id, {
+                id,
+                name: nameMatch ? nameMatch[1] : (existing?.name || (id === 'default-vault' ? 'Meu Vault Local' : 'Vault')),
+                storageType: storageTypeMatch ? storageTypeMatch[1] : (existing?.storageType || (id.startsWith('fsa-') ? 'fsa' : 'idb')),
+                folderName: folderNameMatch ? folderNameMatch[1] : existing?.folderName,
+                path: pathMatch ? pathMatch[1] : existing?.path,
+                updatedAt,
+                isDefault: isDefaultMatch ? isDefaultMatch[1] === 'true' : (existing?.isDefault ?? (id === 'default-vault')),
+              });
+            }
+          }
+        } catch {}
+      }
+    }
+
+    // Resolve physical paths for all recovered vaults
+    for (const [id, v] of vaultMap.entries()) {
+      v.path = resolveVaultPhysicalPath(v);
     }
 
     const recoveredList = Array.from(vaultMap.values());
     if (recoveredList.length > 0) {
-      console.log(`[RPGSA Electron] Successfully recovered ${recoveredList.length} vault(s) from previous LevelDB logs:`, recoveredList.map(v => v.name));
+      console.log(`[RPGSA Electron] Successfully recovered ${recoveredList.length} vault(s) from previous LevelDB logs:`, recoveredList.map(v => `${v.name} (${v.id})`));
       return recoveredList;
     }
   } catch (err) {
@@ -417,20 +499,63 @@ function recoverVaultsFromLevelDB() {
 
 function loadVaultsFromDisk() {
   const filePath = getVaultsFilePath();
+  let diskData = null;
   try {
     if (fs.existsSync(filePath)) {
       const raw = fs.readFileSync(filePath, 'utf-8');
       const parsed = JSON.parse(raw);
       if (parsed && Array.isArray(parsed.vaults) && parsed.vaults.length > 0) {
-        return parsed;
+        diskData = parsed;
       }
     }
   } catch (err) {
     console.error('[RPGSA Electron] Error reading vaults-registry.json:', err);
   }
 
-  // Fallback: Recover from old LevelDB logs if available
+  // Always attempt recovery from old LevelDB logs to ensure no vaults are omitted
   const recovered = recoverVaultsFromLevelDB();
+
+  if (diskData && diskData.vaults) {
+    // If recovered vaults exist, merge them into diskData without losing any vault
+    if (recovered && recovered.length > 0) {
+      const vaultMap = new Map();
+      // First add recovered vaults
+      for (const v of recovered) {
+        if (v && v.id) vaultMap.set(v.id, v);
+      }
+      // Then merge disk vaults (keeping disk updates if newer or existing)
+      for (const v of diskData.vaults) {
+        if (!v || !v.id) continue;
+        const existing = vaultMap.get(v.id);
+        if (!existing) {
+          vaultMap.set(v.id, v);
+        } else {
+          vaultMap.set(v.id, {
+            ...existing,
+            ...v,
+            path: v.path || existing.path || resolveVaultPhysicalPath(v),
+            folderName: v.folderName || existing.folderName,
+            updatedAt: Math.max(v.updatedAt || 0, existing.updatedAt || 0),
+          });
+        }
+      }
+
+      const mergedList = Array.from(vaultMap.values());
+      const activeId = diskData.activeVaultId || mergedList.find(v => !v.isDefault)?.id || 'default-vault';
+      const mergedData = {
+        vaults: mergedList,
+        activeVaultId: activeId
+      };
+      // If new vaults were merged in, save back to disk
+      if (mergedList.length !== diskData.vaults.length) {
+        saveVaultsToDisk(mergedData);
+      }
+      return mergedData;
+    }
+    return diskData;
+  }
+
+  // Fallback: Recover from old LevelDB logs if diskData was empty
   if (recovered && recovered.length > 0) {
     const activeVault = recovered.find(v => !v.isDefault) || recovered[0];
     const data = {

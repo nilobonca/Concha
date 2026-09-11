@@ -1,9 +1,12 @@
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useBoardCanvas } from '../hooks/useBoardCanvas';
+import { getBoardDataFromStorage } from '../hooks/useBoardStorage';
 import { BoardElement, HandlePosition, BoardElementType } from '../types';
 import { useIDB } from '@/utils/indexedDB';
 import { Layer } from '@/interfaces/utils/indexedDB';
 import { useVaultStore } from '@/modules/vault/hooks/useVaultStore';
+import { extractFolders } from '@/modules/vault/utils/fileNameUtils';
+import { moveCanvasOnDisk, renameCanvasOnDisk } from '@/modules/vault/utils/canvasDiskSync';
 import { BoardHeader } from './BoardHeader';
 import { BoardToolbar } from './BoardToolbar';
 import { BoardCanvasContainer } from './BoardCanvasContainer';
@@ -65,7 +68,7 @@ export const BoardView: React.FC<BoardViewProps> = ({
     setCanvasModalOpen,
     editingElementId,
     setEditingElementId,
-  } = useBoardCanvas(boardId, currentLayer?.name);
+  } = useBoardCanvas(boardId, currentLayer?.name, folderPath);
 
   // Sincronizar nome caso a camada seja alterada externamente (apenas após carregamento concluído)
   useEffect(() => {
@@ -91,6 +94,9 @@ export const BoardView: React.FC<BoardViewProps> = ({
     initBoardVault();
   }, [currentLayer?.vaultId, currentLayer?.vaultName]);
 
+  const nodes = useVaultStore(state => state.nodes);
+  const allFolders = useMemo(() => extractFolders(nodes), [nodes]);
+
   // Handler completo de renomeação disparado pelo BoardHeader
   const handleUpdateBoardName = useCallback((newName: string) => {
     const trimmed = newName.trim();
@@ -99,9 +105,16 @@ export const BoardView: React.FC<BoardViewProps> = ({
     // 1. Atualiza dados internos do quadro e salva no IndexedDB
     updateBoardName(trimmed);
 
-    // 2. Atualiza a camada (Layer) no IndexedDB para sincronizar com a árvore de arquivos, baú e dashboard
+    // 2. Atualiza a camada (Layer) no IndexedDB e sincroniza renomeação física no Windows
+    const vaultStore = useVaultStore.getState();
+    const provider = vaultStore.provider;
     if (currentLayer) {
       if (currentLayer.name !== trimmed) {
+        if (provider && provider.isConnected) {
+          renameCanvasOnDisk(provider, currentLayer.folderPath || '', currentLayer.name, trimmed).then(() => {
+            vaultStore.refreshNodes();
+          });
+        }
         updateLayer({ ...currentLayer, name: trimmed });
       }
     } else {
@@ -119,6 +132,8 @@ export const BoardView: React.FC<BoardViewProps> = ({
         order: 0,
         canvasType: 'board',
         folderPath: null,
+        vaultId: vaultStore.vaultId,
+        vaultName: vaultStore.vaultName,
       };
       addLayer(newLayer);
     }
@@ -133,6 +148,63 @@ export const BoardView: React.FC<BoardViewProps> = ({
       }));
     }
   }, [boardId, currentLayer, updateBoardName, updateLayer, addLayer]);
+
+  // Handler de alteração de pasta disparado pelo BoardHeader ou dropdown de pastas
+  const handleUpdateFolder = useCallback((newFolder: string | null) => {
+    const vaultStore = useVaultStore.getState();
+    const targetVaultId = newFolder !== null ? (currentLayer?.vaultId || vaultStore.vaultId) : currentLayer?.vaultId;
+    const targetVaultName = newFolder !== null ? (currentLayer?.vaultName || vaultStore.vaultName) : currentLayer?.vaultName;
+
+    // Sincroniza movimentação física do arquivo .canvas no Windows
+    const oldFolder = currentLayer?.folderPath;
+    const provider = vaultStore.provider;
+    if (provider && provider.isConnected) {
+      moveCanvasOnDisk(
+        provider,
+        oldFolder,
+        newFolder,
+        boardData.name,
+        () => getBoardDataFromStorage(boardId)
+      ).then(() => {
+        vaultStore.refreshNodes();
+      });
+    }
+
+    if (currentLayer) {
+      updateLayer({
+        ...currentLayer,
+        folderPath: newFolder,
+        vaultId: targetVaultId,
+        vaultName: targetVaultName,
+      });
+    } else {
+      const newLayer: Layer = {
+        id: boardId,
+        type: 'group',
+        name: boardData.name || 'Quadro de Conexões',
+        visible: true,
+        locked: false,
+        parentId: null,
+        depth: 0,
+        isProject: false,
+        isProjectMetadata: true,
+        projectId: boardId,
+        order: 0,
+        canvasType: 'board',
+        folderPath: newFolder,
+        vaultId: targetVaultId,
+        vaultName: targetVaultName,
+      };
+      addLayer(newLayer);
+    }
+
+    // Se for movido para uma pasta do Vault, auto-expande a pasta na barra lateral se estiver recolhida
+    if (newFolder) {
+      if (!vaultStore.expandedFolders.has(newFolder)) {
+        vaultStore.toggleFolder(newFolder);
+      }
+    }
+  }, [currentLayer, updateLayer, addLayer, boardId, boardData.name]);
 
   const { provider, getFileUrl } = useVaultStore();
   const [vaultSearchModalOpen, setVaultSearchModalOpen] = useState(false);
@@ -283,7 +355,9 @@ export const BoardView: React.FC<BoardViewProps> = ({
         isEmbeddedInVault={isEmbeddedInVault}
         onCloseEmbedded={onCloseEmbedded}
         folderPath={folderPath}
-        onMoveToGeneral={() => currentLayer && updateLayer({ ...currentLayer, folderPath: null })}
+        allFolders={allFolders}
+        onSelectFolder={handleUpdateFolder}
+        onMoveToGeneral={() => handleUpdateFolder(null)}
       />
 
       {/* Viewport Interativo com Pan & Zoom */}

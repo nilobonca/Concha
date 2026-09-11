@@ -3,7 +3,8 @@ import { useRouter } from 'next/router';
 import { Layer } from '@/interfaces/utils/indexedDB';
 import { useIDB } from '@/utils/indexedDB';
 import { useVaultStore, getCustomOrder, setCustomOrder } from '../../hooks/useVaultStore';
-import { updateBoardNameInIDB } from '@/modules/board/hooks/useBoardStorage';
+import { updateBoardNameInIDB, getBoardDataFromStorage } from '@/modules/board/hooks/useBoardStorage';
+import { moveCanvasOnDisk, renameCanvasOnDisk, deleteCanvasFromDisk } from '../../utils/canvasDiskSync';
 import ContextMenu from '@/components/ContextMenu';
 import { DeleteConfirmModal } from '../DeleteConfirmModal';
 import { PromptInputModal } from '../PromptInputModal';
@@ -34,7 +35,7 @@ export const VaultGeneralCanvasesTab: React.FC<VaultGeneralCanvasesTabProps> = (
   onSelectPath,
 }) => {
   const router = useRouter();
-  const { openCanvasTab, closeTab, vaultId } = useVaultStore();
+  const { openCanvasTab, closeTab, vaultId, setSidebarTab, expandedFolders, toggleFolder, provider, refreshNodes } = useVaultStore();
   const { activeLayers, updateLayer, deleteLayer } = useIDB();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -131,10 +132,22 @@ export const VaultGeneralCanvasesTab: React.FC<VaultGeneralCanvasesTabProps> = (
         const parsed = JSON.parse(canvasData);
         const target = allCanvases.find(c => c.id === parsed.id);
         if (target && target.folderPath) {
+          const oldFolder = target.folderPath;
           updateLayer({ ...target, folderPath: null });
+          if (target.canvasType === 'board') {
+            moveCanvasOnDisk(provider, oldFolder, null, target.name, () => getBoardDataFromStorage(target.id)).then(() => {
+              refreshNodes();
+            });
+          }
         }
       } else if (draggedCanvas && draggedCanvas.folderPath) {
+        const oldFolder = draggedCanvas.folderPath;
         updateLayer({ ...draggedCanvas, folderPath: null });
+        if (draggedCanvas.canvasType === 'board') {
+          moveCanvasOnDisk(provider, oldFolder, null, draggedCanvas.name, () => getBoardDataFromStorage(draggedCanvas.id)).then(() => {
+            refreshNodes();
+          });
+        }
       }
     } catch (err) {
       console.error('Falha ao mover canvas para o Baú de Canvas:', err);
@@ -166,11 +179,32 @@ export const VaultGeneralCanvasesTab: React.FC<VaultGeneralCanvasesTabProps> = (
         subMenu: [
           {
             label: 'Raiz do Vault',
-            onClick: () => updateLayer({ ...c, folderPath: '' })
+            onClick: () => {
+              updateLayer({ ...c, folderPath: '' });
+              setSidebarTab('files');
+              onSelectPath?.(`canvas:${c.id}`);
+              if (c.canvasType === 'board') {
+                moveCanvasOnDisk(provider, null, '', c.name, () => getBoardDataFromStorage(c.id)).then(() => {
+                  refreshNodes();
+                });
+              }
+            }
           },
           ...allFolders.map(folder => ({
             label: folder,
-            onClick: () => updateLayer({ ...c, folderPath: folder })
+            onClick: () => {
+              updateLayer({ ...c, folderPath: folder });
+              if (!expandedFolders.has(folder)) {
+                toggleFolder(folder);
+              }
+              setSidebarTab('files');
+              onSelectPath?.(`canvas:${c.id}`);
+              if (c.canvasType === 'board') {
+                moveCanvasOnDisk(provider, null, folder, c.name, () => getBoardDataFromStorage(c.id)).then(() => {
+                  refreshNodes();
+                });
+              }
+            }
           }))
         ]
       },
@@ -440,10 +474,15 @@ export const VaultGeneralCanvasesTab: React.FC<VaultGeneralCanvasesTabProps> = (
         onConfirm={async (newName) => {
           const trimmed = newName?.trim();
           if (renameTarget && trimmed && trimmed !== renameTarget.name) {
+            const oldName = renameTarget.name;
             updateLayer({ ...renameTarget, name: trimmed });
             useVaultStore.getState().updateCanvasTitleInTabs(renameTarget.id, trimmed);
             if (renameTarget.canvasType === 'board') {
               await updateBoardNameInIDB(renameTarget.id, trimmed);
+              if (provider && provider.isConnected) {
+                await renameCanvasOnDisk(provider, renameTarget.folderPath || '', oldName, trimmed);
+                refreshNodes();
+              }
             }
             if (typeof window !== 'undefined') {
               window.dispatchEvent(new CustomEvent('canvas_renamed', {
@@ -461,8 +500,12 @@ export const VaultGeneralCanvasesTab: React.FC<VaultGeneralCanvasesTabProps> = (
         itemName={deleteTarget?.name || ''}
         itemType="canvas"
         onClose={() => setDeleteTarget(null)}
-        onConfirm={() => {
+        onConfirm={async () => {
           if (deleteTarget) {
+            if (deleteTarget.canvasType === 'board' && provider && provider.isConnected) {
+              await deleteCanvasFromDisk(provider, deleteTarget.folderPath || '', deleteTarget.name);
+              refreshNodes();
+            }
             deleteLayer(deleteTarget.id);
             closeTab(`canvas:${deleteTarget.id}`);
             setDeleteTarget(null);

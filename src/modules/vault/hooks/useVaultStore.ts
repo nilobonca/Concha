@@ -35,6 +35,8 @@ import {
   updatePaneInTree,
   isTabPathMatch
 } from '../utils/layoutUtils';
+import { parseCanvasDataFromDisk, saveCanvasToDisk } from '../utils/canvasDiskSync';
+import { saveBoardDataToStorage } from '@/modules/board/hooks/useBoardStorage';
 
 export type { VaultTab };
 export type { VaultLayoutNode, VaultPaneLeaf, SplitDirection, DraggedTabInfo, DropPreviewState };
@@ -43,7 +45,7 @@ export interface FlatNoteItem {
   path: string;
   name: string;
   folder: string;
-  fileType?: 'note' | 'audio' | 'image' | 'file';
+  fileType?: 'note' | 'audio' | 'image' | 'file' | 'canvas';
   extension?: string;
   size?: number;
 }
@@ -142,6 +144,7 @@ interface VaultState {
   syncCanvasNote: (path: string, markdown: string) => void;
 
   createFile: (folderPath?: string, name?: string, initialContent?: string, shouldOpen?: boolean) => Promise<string>;
+  createBoardCanvas: (targetFolder?: string | null, customName?: string) => Promise<{ id: string; name: string; path: string }>;
   saveMediaFile: (file: File, folderPath?: string) => Promise<string>;
   getFileUrl: (filePath: string) => Promise<string>;
   createFolder: (parentPath?: string, name?: string) => Promise<void>;
@@ -840,6 +843,56 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     }
 
     const ext = path.split('.').pop()?.toLowerCase() || '';
+    if (ext === 'canvas') {
+      const fileName = path.split('/').pop() || '';
+      const canvasName = fileName.replace(/\.canvas$/i, '');
+      const lastSlash = path.lastIndexOf('/');
+      const folderPath = lastSlash !== -1 ? path.slice(0, lastSlash) : '';
+
+      const provider = get().provider;
+      let rawContent = '';
+      if (provider) {
+        try {
+          rawContent = await provider.readDocument(path);
+        } catch (e) {
+          console.warn('[useVaultStore] Erro ao ler .canvas do disco:', e);
+        }
+      }
+
+      const boardData = parseCanvasDataFromDisk(rawContent, canvasName, folderPath);
+      await saveBoardDataToStorage(boardData, folderPath);
+
+      const existingLayers = get().canvases;
+      const matched = existingLayers.find(l => l.id === boardData.id || (l.name === canvasName && (l.folderPath || '') === folderPath));
+      const targetId = matched ? matched.id : boardData.id;
+
+      if (!matched) {
+        const projectMeta: Layer = {
+          id: targetId,
+          type: 'group',
+          name: canvasName,
+          visible: true,
+          locked: false,
+          parentId: null,
+          depth: 0,
+          isProject: false,
+          isProjectMetadata: true,
+          projectId: targetId,
+          order: 0,
+          canvasType: 'board',
+          folderPath: folderPath,
+          vaultId: get().vaultId || 'default-vault',
+          vaultName: get().vaultName || 'Meu Vault',
+        };
+        set(state => ({
+          canvases: [...state.canvases.filter(c => c.id !== targetId), projectMeta]
+        }));
+      }
+
+      get().openCanvasTab(targetId, canvasName, targetPaneId);
+      return;
+    }
+
     const isAudio = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'webm', 'opus'].includes(ext);
     const isImage = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'bmp', 'avif'].includes(ext);
 
@@ -1334,6 +1387,100 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       }
     }
     return fullPath;
+  },
+
+  createBoardCanvas: async (targetFolder?: string | null, customName?: string) => {
+    let { provider } = get();
+    if (!provider) {
+      await get().initializeStorage();
+      provider = get().provider;
+    }
+    if (!provider) throw new Error('Storage não inicializado');
+
+    if (get().storageType === 'fsa' && provider instanceof FSAStorageProvider) {
+      if (!provider.isConnected) {
+        await provider.reconnect();
+      }
+      if (provider.isConnected && !get().isConnected) {
+        set({ isConnected: true, vaultName: provider.vaultName });
+        await get().refreshNodes();
+      }
+    }
+
+    const resolvedFolder = targetFolder ?? '';
+    const cleanFolder = resolvedFolder ? sanitizeVaultPath(resolvedFolder, true) : '';
+
+    let finalName = customName?.trim() || '';
+    if (!finalName) {
+      const allFiles = get().getAllFiles();
+      const existingCanvases = get().canvases;
+      const prefix = cleanFolder ? `${cleanFolder}/` : '';
+      const existingPaths = new Set([
+        ...allFiles.map(f => f.path.toLowerCase()),
+        ...existingCanvases.map(c => `${prefix}${c.name.toLowerCase()}.canvas`),
+      ]);
+
+      const defaultBase = 'Quadro de Conexões';
+      const candidate = `${prefix}${defaultBase}.canvas`.toLowerCase();
+      if (!existingPaths.has(candidate)) {
+        finalName = defaultBase;
+      } else {
+        let counter = 1;
+        while (existingPaths.has(`${prefix}${defaultBase} ${counter}.canvas`.toLowerCase())) {
+          counter++;
+        }
+        finalName = `${defaultBase} ${counter}`;
+      }
+    }
+
+    const cleanBaseName = sanitizeVaultFileName(finalName.replace(/\.canvas$/i, '').trim(), false) || 'Quadro de Conexões';
+    const newId = uuidv4();
+    const projectMeta: Layer = {
+      id: newId,
+      type: 'group',
+      name: cleanBaseName,
+      visible: true,
+      locked: false,
+      parentId: null,
+      depth: 0,
+      isProject: false,
+      isProjectMetadata: true,
+      projectId: newId,
+      order: 0,
+      canvasType: 'board',
+      folderPath: cleanFolder,
+      vaultId: get().vaultId || 'default-vault',
+      vaultName: get().vaultName || 'Meu Vault',
+    };
+
+    set(state => ({
+      canvases: [...state.canvases.filter(c => c.id !== newId), projectMeta]
+    }));
+
+    const initialData = {
+      id: newId,
+      name: cleanBaseName,
+      elements: [],
+      connections: [],
+      updatedAt: new Date().toISOString(),
+    };
+
+    await saveBoardDataToStorage(initialData, cleanFolder);
+
+    const fullPath = await saveCanvasToDisk(provider, cleanFolder, cleanBaseName, initialData);
+
+    await get().refreshNodes();
+
+    if (cleanFolder) {
+      const currentExpanded = get().expandedFolders;
+      if (!currentExpanded.has(cleanFolder)) {
+        get().toggleFolder(cleanFolder);
+      }
+    }
+
+    get().openCanvasTab(newId, cleanBaseName);
+
+    return { id: newId, name: cleanBaseName, path: fullPath || `${cleanBaseName}.canvas` };
   },
 
   saveMediaFile: async (file: File, folderPath: string = '') => {

@@ -14,6 +14,10 @@ import { Layer } from '@/interfaces/utils/indexedDB';
 import { v4 as uuidv4 } from 'uuid';
 import { useRouter } from 'next/router';
 import { WindowControls } from '@/components/common/WindowControls';
+import { saveCanvasToDisk } from '../utils/canvasDiskSync';
+import { saveBoardDataToStorage } from '@/modules/board/hooks/useBoardStorage';
+import { BoardData } from '@/modules/board/types';
+import { FSAStorageProvider } from '../storage/FSAStorageProvider';
 
 export const VaultLayout: React.FC = () => {
   const router = useRouter();
@@ -30,6 +34,9 @@ export const VaultLayout: React.FC = () => {
     setCanvases,
     vaultId,
     vaultName,
+    activePath,
+    expandedFolders,
+    toggleFolder,
   } = useVaultStore();
 
   const { activeLayers, addLayer } = useIDB();
@@ -46,7 +53,23 @@ export const VaultLayout: React.FC = () => {
     setCanvases(projectCanvases);
   }, [activeLayers, setCanvases, vaultId, isDefaultVault]);
 
-  const handleCreateBoardCanvas = () => {
+  const handleCreateBoardCanvas = async () => {
+    let { provider, initializeStorage } = useVaultStore.getState();
+    if (!provider) {
+      await initializeStorage();
+      provider = useVaultStore.getState().provider;
+    }
+
+    if (useVaultStore.getState().storageType === 'fsa' && provider instanceof FSAStorageProvider) {
+      if (!provider.isConnected) {
+        await provider.reconnect();
+      }
+      if (provider.isConnected && !useVaultStore.getState().isConnected) {
+        useVaultStore.setState({ isConnected: true, vaultName: provider.vaultName });
+        await useVaultStore.getState().refreshNodes();
+      }
+    }
+
     const newId = uuidv4();
     const existingBoards = activeLayers.filter(l => {
       const isMeta = l.isProjectMetadata && l.canvasType === 'board';
@@ -59,6 +82,16 @@ export const VaultLayout: React.FC = () => {
       counter++;
     }
     const newName = `Quadro de Conexões ${counter}`;
+
+    // Determina a pasta ativa se o usuário estiver trabalhando dentro de um diretório
+    let targetFolder: string = '';
+    if (activePath && !activePath.startsWith('canvas:')) {
+      const lastSlash = activePath.lastIndexOf('/');
+      if (lastSlash !== -1) {
+        targetFolder = activePath.slice(0, lastSlash);
+      }
+    }
+
     const projectMeta: Layer = {
       id: newId,
       type: 'group',
@@ -72,12 +105,36 @@ export const VaultLayout: React.FC = () => {
       projectId: newId,
       order: 0,
       canvasType: 'board',
-      folderPath: null,
+      folderPath: targetFolder,
       vaultId: vaultId || 'default-vault',
       vaultName: vaultName || 'Meu Vault',
     };
 
     addLayer(projectMeta);
+
+    const initialData: BoardData = {
+      id: newId,
+      name: newName,
+      elements: [],
+      connections: [],
+      updatedAt: new Date().toISOString(),
+    };
+    await saveBoardDataToStorage(initialData, targetFolder);
+
+    const vaultStore = useVaultStore.getState();
+    const currentProvider = vaultStore.provider;
+    if (currentProvider && currentProvider.isConnected) {
+      await saveCanvasToDisk(currentProvider, targetFolder, newName, initialData);
+      await vaultStore.refreshNodes();
+    }
+
+    // Se o canvas foi criado dentro de uma pasta, garante que ela esteja aberta na árvore
+    if (targetFolder) {
+      if (!expandedFolders.has(targetFolder)) {
+        toggleFolder(targetFolder);
+      }
+    }
+
     openCanvasTab(newId, newName);
   };
 

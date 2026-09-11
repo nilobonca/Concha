@@ -432,7 +432,7 @@ export class IDBStorageProvider implements IVaultStorageProvider {
       try { clean = decodeURIComponent(clean); } catch {}
     }
     clean = clean.normalize('NFC');
-    const normalized = /\.(md|txt)$/i.test(clean) ? clean : `${clean}.md`;
+    const normalized = /\.(md|txt|canvas)$/i.test(clean) ? clean : `${clean}.md`;
     return `${this._vaultId}:${normalized}`;
   }
 
@@ -521,13 +521,14 @@ export class IDBStorageProvider implements IVaultStorageProvider {
 
     // Place docs in folders
     docs.forEach(d => {
+      const isCanvas = d.path.toLowerCase().endsWith('.canvas');
       const fileNode: VaultNode = {
         id: d.path,
         name: d.title,
         path: d.path,
         type: 'file',
-        fileType: 'note',
-        extension: 'md',
+        fileType: isCanvas ? 'canvas' : 'note',
+        extension: isCanvas ? 'canvas' : 'md',
         updatedAt: d.updatedAt
       };
 

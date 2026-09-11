@@ -11,7 +11,7 @@ export function useIDBCanvasState(
     db: IDBDatabase | null,
     isPreviewModeRef: React.MutableRefObject<boolean>,
     setPreviewState: React.Dispatch<React.SetStateAction<any>>,
-    updateItemPersisted: (item: any, type: string) => void,
+    updateItemPersisted: (item: any, type: string, immediate?: boolean) => void,
     deleteItemPersisted: (id: string) => void,
     setSavedAudios: React.Dispatch<React.SetStateAction<Audios[]>>,
     setSavedImages: React.Dispatch<React.SetStateAction<Images[]>>
@@ -126,14 +126,14 @@ export function useIDBCanvasState(
         setActiveLayers(prev => {
             const maxOrder = prev.length > 0 ? Math.max(...prev.map(l => l.order || 0)) : -1;
             const newLayer = { ...layer, order: maxOrder + 1 };
-            updateItemPersisted(newLayer, 'Layer');
+            updateItemPersisted(newLayer, 'Layer', true);
             return [newLayer, ...prev];
         });
     }, [setActiveLayers, updateItemPersisted]);
 
     const updateLayer = useCallback((layer: Layer) => {
         setActiveLayers(prev => prev.map(l => l.id === layer.id ? layer : l));
-        updateItemPersisted(layer, 'Layer');
+        updateItemPersisted(layer, 'Layer', true);
     }, [setActiveLayers, updateItemPersisted]);
 
     const deleteLayer = useCallback((id: string) => {
@@ -144,7 +144,7 @@ export function useIDBCanvasState(
     const reorderLayers = useCallback((layers: Layer[]) => {
         const updatedLayers = layers.map((l, index) => ({ ...l, order: layers.length - 1 - index }));
         setActiveLayers(updatedLayers);
-        updatedLayers.forEach(l => updateItemPersisted(l, 'Layer'));
+        updatedLayers.forEach(l => updateItemPersisted(l, 'Layer', true));
     }, [setActiveLayers, updateItemPersisted]);
 
     const reorderAudios = useCallback((audios: Audios[]) => {

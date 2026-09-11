@@ -381,6 +381,7 @@ export class FSAStorageProvider implements IVaultStorageProvider {
             const isText = ext === 'txt';
             const isAudio = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'webm', 'opus'].includes(ext);
             const isImage = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'bmp', 'avif', 'ico'].includes(ext);
+            const isCanvas = ext === 'canvas';
 
             let fileSize = 0;
             let fileLastModified = Date.now();
@@ -393,10 +394,12 @@ export class FSAStorageProvider implements IVaultStorageProvider {
               console.warn(`[FSAStorageProvider] Aviso ao ler arquivo '${name}':`, fileErr);
             }
 
-            const fileType: 'note' | 'audio' | 'image' | 'file' = isAudio
+            const fileType: 'note' | 'audio' | 'image' | 'file' | 'canvas' = isAudio
               ? 'audio'
               : isImage
               ? 'image'
+              : isCanvas
+              ? 'canvas'
               : isMarkdown || isText
               ? 'note'
               : 'file';

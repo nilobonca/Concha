@@ -56,12 +56,15 @@ export function useVaultRegistry() {
   // Sincronizar o vault atualmente conectado com a lista registrada
   useEffect(() => {
     if (!isLoaded || !currentVaultId) return;
+    const existing = rawVaults.find(v => v.id === currentVaultId);
     syncCurrentVault({
       id: currentVaultId,
       name: currentVaultName,
       storageType: currentStorageType,
+      folderName: existing?.folderName,
+      path: existing?.path,
     });
-  }, [currentVaultId, currentVaultName, currentStorageType, isLoaded, syncCurrentVault]);
+  }, [currentVaultId, currentVaultName, currentStorageType, isLoaded, rawVaults, syncCurrentVault]);
 
   // Contagem de canvases por vault
   const allCanvases = useMemo(() => {

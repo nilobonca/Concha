@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { BoardData } from '../types';
 import { cleanLegacyPlaceholder } from '@/utils/cleanLegacyPlaceholder';
+import { useVaultStore } from '@/modules/vault/hooks/useVaultStore';
+import { saveCanvasToDisk } from '@/modules/vault/utils/canvasDiskSync';
 
 const DB_NAME = 'RPGSA_DB';
 const STORE_NAME = 'keyval';
@@ -128,7 +130,7 @@ export async function getBoardDataFromStorage(boardId: string): Promise<BoardDat
   return chosenData;
 }
 
-export async function saveBoardDataToStorage(data: BoardData): Promise<void> {
+export async function saveBoardDataToStorage(data: BoardData, explicitFolder?: string | null): Promise<void> {
   if (!data || !data.id) return;
 
   // 1. Salvar no localStorage de forma imediata (proteção contra perda e travamento)
@@ -156,6 +158,32 @@ export async function saveBoardDataToStorage(data: BoardData): Promise<void> {
   } catch (err) {
     console.error('Erro ao salvar board no IndexedDB:', err);
   }
+
+  // 3. Salvar no arquivo físico .canvas no Windows
+  try {
+    const vaultStore = useVaultStore.getState();
+    let provider = vaultStore.provider;
+    if (!provider) {
+      await vaultStore.initializeStorage();
+      provider = useVaultStore.getState().provider;
+    }
+
+    if (provider) {
+      let folderPath: string = '';
+      if (explicitFolder !== undefined && explicitFolder !== null) {
+        folderPath = explicitFolder;
+      } else {
+        const match = vaultStore.canvases.find(c => c.id === data.id);
+        if (match && match.folderPath) {
+          folderPath = match.folderPath;
+        }
+      }
+
+      await saveCanvasToDisk(provider, folderPath, data.name, data);
+    }
+  } catch (syncErr) {
+    console.warn('[useBoardStorage] Aviso ao sincronizar com arquivo físico .canvas:', syncErr);
+  }
 }
 
 export async function updateBoardNameInIDB(boardId: string, newName: string): Promise<void> {
@@ -181,7 +209,7 @@ export async function updateBoardNameInIDB(boardId: string, newName: string): Pr
   }
 }
 
-export function useBoardStorage(boardId: string, initialName?: string) {
+export function useBoardStorage(boardId: string, initialName?: string, folderPath?: string | null) {
   const [boardData, setBoardData] = useState<BoardData>({
     id: boardId,
     name: initialName || 'Quadro de Conexões',
@@ -193,6 +221,8 @@ export function useBoardStorage(boardId: string, initialName?: string) {
   const isLoadedRef = useRef(false);
   const latestBoardDataRef = useRef(boardData);
   latestBoardDataRef.current = boardData;
+  const folderPathRef = useRef<string | null | undefined>(folderPath);
+  folderPathRef.current = folderPath;
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Executa salvamento imediatamente e cancela timeout pendente
@@ -204,7 +234,7 @@ export function useBoardStorage(boardId: string, initialName?: string) {
     }
     const target = dataToSave || latestBoardDataRef.current;
     if (target && target.id) {
-      saveBoardDataToStorage(target);
+      saveBoardDataToStorage(target, folderPathRef.current);
     }
   }, []);
 
