@@ -405,7 +405,30 @@ ipcMain.handle('window-maximize', () => {
 });
 
 ipcMain.handle('window-close', () => {
-  if (mainWindow) mainWindow.close();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      mainWindow.close();
+    } catch (err) {
+      console.error('[RPGSA Electron] Error closing mainWindow:', err);
+      try {
+        mainWindow.destroy();
+      } catch {}
+    }
+    // Fallback de segurança: Se a janela não fechar em 350ms (devido a eventos bloqueados), força o encerramento
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        console.warn('[RPGSA Electron] Janela principal não fechou graciosamente, forçando destruição...');
+        try {
+          mainWindow.destroy();
+        } catch {}
+      }
+      if (process.platform !== 'darwin' || BrowserWindow.getAllWindows().length === 0) {
+        app.quit();
+      }
+    }, 350);
+  } else {
+    app.quit();
+  }
 });
 
 ipcMain.handle('is-maximized', () => {

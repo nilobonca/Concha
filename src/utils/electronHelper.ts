@@ -55,6 +55,8 @@ export const maximizeWindow = (): void => {
 export const closeWindow = (): void => {
   if (typeof window !== 'undefined' && window.electronAPI?.close) {
     window.electronAPI.close();
+  } else if (typeof window !== 'undefined' && typeof window.close === 'function') {
+    window.close();
   }
 };
 
