@@ -60,4 +60,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Vaults Registry Persistence API
   loadVaultsRegistry: () => ipcRenderer.invoke('load-vaults-registry'),
   saveVaultsRegistry: (data) => ipcRenderer.invoke('save-vaults-registry', data),
+
+  // Spell Checker API
+  setSpellCheckerConfig: (enabled, languages) => ipcRenderer.invoke('set-spellchecker-config', { enabled, languages }),
+  getSpellCheckerConfig: () => ipcRenderer.invoke('get-spellchecker-config'),
+  getAvailableSpellCheckerLanguages: () => ipcRenderer.invoke('get-available-spellchecker-languages'),
+  addWordToSpellCheckerDictionary: (word) => ipcRenderer.invoke('add-word-to-dictionary', word),
+  replaceMisspelling: (suggestion) => ipcRenderer.invoke('replace-misspelling', suggestion),
+  onSpellCheckMenuData: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('spellcheck-menu-data', handler);
+    return () => ipcRenderer.removeListener('spellcheck-menu-data', handler);
+  },
 });

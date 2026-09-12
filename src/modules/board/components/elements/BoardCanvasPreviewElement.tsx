@@ -37,9 +37,9 @@ export const BoardCanvasPreviewElement: React.FC<BoardCanvasPreviewElementProps>
 
   const handleOpenCanvas = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!data.targetProjectId) return;
-
-    const url = isAudioType ? `/project/${data.targetProjectId}` : `/board/${data.targetProjectId}`;
+    const url = isAudioType
+      ? `/project?id=${encodeURIComponent(data.targetProjectId)}`
+      : `/board?id=${encodeURIComponent(data.targetProjectId)}`;
     window.open(url, '_blank');
   };
 

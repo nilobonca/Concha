@@ -1022,11 +1022,11 @@ export const useVaultStore = create<VaultState>((set, get) => ({
         get().openCanvasTab(matchingCanvas.id, matchingCanvas.name, targetPaneId);
         return;
       } else {
-        // Audio project canvas: navigate to /project/[id]
+        // Audio project canvas: navigate to /project?id=[id]
         if (Router && Router.push) {
-          Router.push(`/project/${matchingCanvas.id}`);
+          Router.push(`/project?id=${encodeURIComponent(matchingCanvas.id)}`);
         } else if (typeof window !== 'undefined') {
-          window.location.href = `/project/${matchingCanvas.id}`;
+          window.location.href = `/project?id=${encodeURIComponent(matchingCanvas.id)}`;
         }
         return;
       }

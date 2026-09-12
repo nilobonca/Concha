@@ -6,6 +6,7 @@ import { useVaultStore, getCustomOrder, setCustomOrder } from '../../hooks/useVa
 import { updateBoardNameInIDB, getBoardDataFromStorage } from '@/modules/board/hooks/useBoardStorage';
 import { moveCanvasOnDisk, renameCanvasOnDisk, deleteCanvasFromDisk } from '../../utils/canvasDiskSync';
 import ContextMenu from '@/components/ContextMenu';
+import { navigateToProject } from '@/utils/navigationHelper';
 import { DeleteConfirmModal } from '../DeleteConfirmModal';
 import { PromptInputModal } from '../PromptInputModal';
 import { 
@@ -168,7 +169,7 @@ export const VaultGeneralCanvasesTab: React.FC<VaultGeneralCanvasesTabProps> = (
           if (isBoard) {
             openCanvasTab(c.id, c.name);
           } else {
-            router.push(`/project/${c.id}`);
+            navigateToProject(router, c.id, c.name);
           }
         }
       },
@@ -401,7 +402,7 @@ export const VaultGeneralCanvasesTab: React.FC<VaultGeneralCanvasesTabProps> = (
                   if (isBoard) {
                     openCanvasTab(canvas.id, canvas.name);
                   } else {
-                    router.push(`/project/${canvas.id}`);
+                    navigateToProject(router, canvas.id, canvas.name);
                   }
                 }}
                 className={`group relative flex items-center justify-between py-2 px-2.5 rounded-xl cursor-pointer transition-all outline-none border ${

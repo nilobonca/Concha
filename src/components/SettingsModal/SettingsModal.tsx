@@ -12,6 +12,7 @@ import { ChatLogModal } from './ChatLogModal';
 import { useShortcutStore } from '@/store/shortcutStore';
 import { useMinigamesStore } from '@/store/minigamesStore';
 import { AppUpdateSettingsSection } from './AppUpdateSettingsSection';
+import { SpellCheckSettingsSection } from './SpellCheckSettingsSection';
 
 type Tab = 'appearance' | 'system' | 'backup' | 'shortcuts' | 'minigames';
 
@@ -343,6 +344,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const renderSystemTab = () => (
     <div className="space-y-8">
       <AppUpdateSettingsSection />
+      <SpellCheckSettingsSection />
 
       <div>
         <h3 className={clsx("mb-4 text-sm font-semibold tracking-wide uppercase", isLight ? "text-stone-700" : "text-[#B4D3F1]/80")}>

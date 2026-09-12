@@ -12,6 +12,7 @@ import { updateBoardNameInIDB, saveBoardDataToStorage, getBoardDataFromStorage }
 import { BoardData } from '@/modules/board/types';
 import { saveCanvasToDisk, renameCanvasOnDisk, moveCanvasOnDisk, deleteCanvasFromDisk } from '../utils/canvasDiskSync';
 import { saveUserTemplate } from '../utils/templateStore';
+import { navigateToProject } from '@/utils/navigationHelper';
 import { v4 as uuidv4 } from 'uuid';
 import { 
   Folder, FolderOpen, FileText, File, ChevronRight, ChevronDown, 
@@ -694,7 +695,7 @@ export const VaultSidebar: React.FC = () => {
     }
     setSelectedPath(`canvas:${newProjectId}`);
 
-    router.push(`/project/${newProjectId}`);
+    navigateToProject(router, newProjectId, newName);
   };
 
   // Helper to extract all folder paths for "Mover para..." submenu
@@ -1182,7 +1183,7 @@ export const VaultSidebar: React.FC = () => {
           if (isBoard) {
             openCanvasTab(canvas.id, canvas.name);
           } else {
-            router.push(`/project/${canvas.id}`);
+            navigateToProject(router, canvas.id, canvas.name);
           }
         }}
         style={{ paddingLeft: `${depth * 14 + 12}px` }}
@@ -1446,7 +1447,7 @@ export const VaultSidebar: React.FC = () => {
             if (isBoard) {
               openCanvasTab(c.id, c.name);
             } else {
-              router.push(`/project/${c.id}`);
+              navigateToProject(router, c.id, c.name);
             }
           }
         },

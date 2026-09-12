@@ -25,6 +25,7 @@ import { UpdateOriginalNoteModal } from '@/modules/vault/components/UpdateOrigin
 import { getCanvasNoteSyncPref, setCanvasNoteSyncPref } from '@/modules/vault/utils/canvasNoteSyncPref';
 import { BoardNoteTitle } from '@/modules/board/components/elements/BoardNoteTitle';
 import { handleTextareaFormattingShortcut, handleTextareaAutoPairing } from '@/utils/textareaFormatting';
+import { useSpellCheckStore } from '@/store/spellCheckStore';
 
 interface NoteItemProps {
   note: ActiveNote;
@@ -138,6 +139,9 @@ export default function NoteItem({
   onContextMenu,
 }: NoteItemProps) {
   const { centerOn } = useCanvas();
+  const spellCheckEnabled = useSpellCheckStore(state => state.enabled);
+  const spellCheckLanguages = useSpellCheckStore(state => state.languages);
+  const langAttr = (spellCheckLanguages && spellCheckLanguages.length > 0 ? spellCheckLanguages : ['pt-BR']).join(' ');
   const setEditingNoteId = useCanvasGlobalStore(state => state.setEditingNoteId);
   const selectedItemIds = useCanvasGlobalStore(state => state.selectedItemIds);
   const noteTitle = note.title || (note.vaultPath ? note.vaultPath.split('/').pop()?.replace(/\.(md|txt)$/i, '') : '') || '';
@@ -824,6 +828,8 @@ export default function NoteItem({
           onKeyDown={handleKeyDown}
           onBlur={handleBlur}
           readOnly={!isEditing}
+          spellCheck={spellCheckEnabled}
+          lang={langAttr}
           onSelect={() => {
             if (!isEditing) {
               window.getSelection()?.removeAllRanges();

@@ -12,6 +12,7 @@ import { MarkdownSyntaxReveal } from '../extensions/MarkdownSyntaxRevealExtensio
 import { FormattingShortcutsExtension } from '../extensions/FormattingShortcutsExtension';
 import { VaultBubbleMenu } from './VaultBubbleMenu';
 import { useVaultStore } from '../hooks/useVaultStore';
+import { navigateToProject } from '@/utils/navigationHelper';
 import { saveUserTemplate } from '../utils/templateStore';
 import { markdownToHtml, htmlToMarkdown } from '../utils/markdownConverter';
 import { parseFrontmatter, stringifyFrontmatter } from '../utils/frontmatterUtils';
@@ -41,6 +42,7 @@ import { DeleteConfirmModal } from './DeleteConfirmModal';
 import { PromptInputModal } from './PromptInputModal';
 import { VaultSlashMenu } from './VaultSlashMenu';
 import { FORMATTING_COMMANDS, FormattingCommand } from '../utils/formattingCommands';
+import { useSpellCheckStore } from '@/store/spellCheckStore';
 
 export interface VaultLinkSuggestion {
   kind: 'note' | 'canvas';
@@ -87,6 +89,9 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath, 
 
   const router = useRouter();
   const { activeLayers } = useIDB();
+  const spellCheckEnabled = useSpellCheckStore(s => s.enabled);
+  const spellCheckLanguages = useSpellCheckStore(s => s.languages);
+  const langAttr = (spellCheckLanguages && spellCheckLanguages.length > 0 ? spellCheckLanguages : ['pt-BR']).join(' ');
 
   // Use documentPath prop if provided (multi-pane mode), otherwise fall back to global
   const activePath = documentPath || globalActivePath;
@@ -426,6 +431,8 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath, 
     editorProps: {
       attributes: {
         class: 'prose dark:prose-invert max-w-none focus:outline-none min-h-[500px] text-stone-900 dark:text-neutral-100 leading-relaxed text-base font-normal',
+        spellcheck: spellCheckEnabled ? 'true' : 'false',
+        lang: langAttr,
       },
       handleKeyDown: (view, event) => {
         // 1. Slash command navigation (/)
@@ -506,9 +513,16 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath, 
                 event.preventDefault();
                 openCanvasTab(href.replace('/board/', ''));
                 return true;
-              } else if (href.startsWith('/project/')) {
+              } else if (href.startsWith('/project/') || href.startsWith('/project?')) {
                 event.preventDefault();
-                router.push(href);
+                const projId = href.includes('?id=')
+                  ? new URLSearchParams(href.split('?')[1]).get('id')
+                  : href.replace('/project/', '');
+                if (projId) {
+                  navigateToProject(router, projId);
+                } else {
+                  router.push(href);
+                }
                 return true;
               }
             }
@@ -540,7 +554,7 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath, 
               if (matchCanvas.canvasType === 'board') {
                 openCanvasTab(matchCanvas.id, matchCanvas.name);
               } else {
-                router.push(`/project/${matchCanvas.id}`);
+                navigateToProject(router, matchCanvas.id, matchCanvas.name);
               }
               return true;
             }
@@ -669,6 +683,16 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath, 
       }
     };
   }, [editor, isActive, setActiveEditorRef]);
+
+  // Atualiza atributos de verificação ortográfica e idioma dinamicamente sem recriar o editor
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    const dom = editor.view?.dom;
+    if (dom) {
+      dom.setAttribute('spellcheck', spellCheckEnabled ? 'true' : 'false');
+      dom.setAttribute('lang', langAttr);
+    }
+  }, [editor, spellCheckEnabled, langAttr]);
 
   const handleExecuteSlashCommand = (cmd: FormattingCommand) => {
     if (!editor) return;

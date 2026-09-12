@@ -14,6 +14,9 @@ import { ActiveArea, ActiveWall, ActiveImage, ActiveNote, Images } from '@/inter
 import { BoardVaultSearchModal, VaultSearchCategory } from '@/modules/board/components/modals/BoardVaultSearchModal';
 import { AudioData, ImageData } from '@/modules/board/types';
 import { useVaultStore } from '@/modules/vault/hooks/useVaultStore';
+import { useCanvasGlobalStore } from '@/store/canvasStore';
+import { navigateToProject } from '@/utils/navigationHelper';
+import { Music } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
 export default function ProjectCanvas() {
@@ -45,6 +48,24 @@ export default function ProjectCanvas() {
     };
     initCanvasVault();
   }, [currentProjectId, core.idb.activeLayers]);
+
+  const isLoaded = Boolean(
+    currentProjectId &&
+    !core.idb.isLoading &&
+    core.projectState.activeProjectId
+  );
+
+  // Sync canvas loading state with global store
+  useEffect(() => {
+    if (!isLoaded) {
+      useCanvasGlobalStore.getState().setIsProjectLoading(true);
+    } else {
+      const timer = setTimeout(() => {
+        useCanvasGlobalStore.getState().finishEnteringProject();
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [isLoaded]);
 
   // Shortcut Ctrl+K to open Vault Search
   useEffect(() => {
@@ -147,6 +168,34 @@ export default function ProjectCanvas() {
     };
     core.idb.addAreaPersisted(newArea, currentProjectId);
   };
+
+  if (!isLoaded) {
+    return (
+      <div className="w-screen h-screen bg-[#0E101D] flex flex-col items-center justify-center relative overflow-hidden text-neutral-300 select-none">
+        {/* Glowing background ambient orbs */}
+        <div className="absolute top-1/4 left-1/3 w-96 h-96 bg-[#1831D7]/20 rounded-full blur-[128px] pointer-events-none" />
+        <div className="absolute bottom-1/4 right-1/3 w-96 h-96 bg-[#52B1FF]/15 rounded-full blur-[128px] pointer-events-none" />
+
+        {/* Minimalist central loader */}
+        <div className="relative z-10 flex flex-col items-center gap-4 select-none">
+          <div className="relative flex items-center justify-center">
+            <div className="w-14 h-14 rounded-2xl bg-white/[0.04] border border-white/10 flex items-center justify-center shadow-2xl backdrop-blur-xl text-[#52B1FF]">
+              <Music className="w-7 h-7 animate-pulse" />
+            </div>
+            <div className="absolute -inset-2 rounded-3xl border-2 border-[#52B1FF]/40 border-t-transparent animate-spin pointer-events-none" />
+          </div>
+          <div className="flex flex-col items-center gap-1.5 text-center px-4">
+            <h3 className="text-sm font-semibold tracking-tight text-white/95">
+              {core.projectName || 'Carregando Canvas de Áudio...'}
+            </h3>
+            <p className="text-xs text-neutral-400">
+              Sincronizando áudio espacial 3D, camadas e soundboard...
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-screen w-screen bg-neutral-900 overflow-hidden relative text-white">
@@ -492,7 +541,7 @@ export default function ProjectCanvas() {
           onSelectImage={handleSelectImageFromVault}
           onSelectCanvas={(canvas) => {
             if (canvas.targetProjectId) {
-              router.push(`/project/${canvas.targetProjectId}`);
+              navigateToProject(router, canvas.targetProjectId);
             }
           }}
         />
@@ -502,9 +551,10 @@ export default function ProjectCanvas() {
 }
 
 export async function getStaticPaths() {
+  const isExport = process.env.NEXT_EXPORT === 'true' || process.env.CAPACITOR_BUILD === 'true';
   return {
     paths: [],
-    fallback: false,
+    fallback: isExport ? false : 'blocking',
   };
 }
 

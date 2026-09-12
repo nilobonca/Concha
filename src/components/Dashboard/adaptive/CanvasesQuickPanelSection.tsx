@@ -14,6 +14,7 @@ import {
 import { Layer } from '@/interfaces/utils/indexedDB';
 import { RegisteredVault } from '@/modules/vault/hooks/useVaultRegistry';
 import { CanvasAdaptiveCard } from './CanvasAdaptiveCard';
+import { navigateToProject, navigateToBoard } from '@/utils/navigationHelper';
 import clsx from 'clsx';
 
 export interface CanvasesQuickPanelSectionProps {
@@ -56,9 +57,9 @@ export const CanvasesQuickPanelSection: React.FC<CanvasesQuickPanelSectionProps>
       onOpenCanvas(canvas);
     } else {
       if (canvas.canvasType === 'board') {
-        router.push(`/board/${canvas.id}`);
+        navigateToBoard(router, canvas.id);
       } else {
-        router.push(`/project/${canvas.id}`);
+        navigateToProject(router, canvas.id, canvas.name);
       }
     }
   };

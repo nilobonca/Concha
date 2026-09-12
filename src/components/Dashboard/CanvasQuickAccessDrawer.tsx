@@ -21,6 +21,7 @@ import { Layer } from '@/interfaces/utils/indexedDB';
 import { RegisteredVault } from '@/modules/vault/hooks/useVaultRegistry';
 import { SafeIcon } from '@/components/common/SafeIcon';
 import { useSmoothHorizontalScroll } from '@/hooks/useSmoothHorizontalScroll';
+import { navigateToProject, navigateToBoard } from '@/utils/navigationHelper';
 import clsx from 'clsx';
 
 interface CanvasQuickAccessDrawerProps {
@@ -150,9 +151,9 @@ export const CanvasQuickAccessDrawer: React.FC<CanvasQuickAccessDrawerProps> = (
   const handleOpenCanvas = (canvas: Layer) => {
     onClose();
     if (canvas.canvasType === 'board') {
-      router.push(`/board/${canvas.id}`);
+      navigateToBoard(router, canvas.id);
     } else {
-      router.push(`/project/${canvas.id}`);
+      navigateToProject(router, canvas.id, canvas.name);
     }
   };
 

@@ -129,3 +129,77 @@ export const quitAndInstall = async (): Promise<void> => {
   }
 };
 
+export const setSpellCheckerConfig = async (enabled: boolean, languages: string[] | string): Promise<boolean> => {
+  if (typeof window !== 'undefined' && window.electronAPI?.setSpellCheckerConfig) {
+    try {
+      return await window.electronAPI.setSpellCheckerConfig(enabled, languages);
+    } catch (err) {
+      console.warn('[RPGSA] setSpellCheckerConfig error:', err);
+    }
+  }
+  return false;
+};
+
+export const getSpellCheckerConfig = async (): Promise<{ enabled: boolean; language: string; languages?: string[] } | null> => {
+  if (typeof window !== 'undefined' && window.electronAPI?.getSpellCheckerConfig) {
+    try {
+      return await window.electronAPI.getSpellCheckerConfig();
+    } catch (err) {
+      console.warn('[RPGSA] getSpellCheckerConfig error:', err);
+    }
+  }
+  return null;
+};
+
+export const getAvailableSpellCheckerLanguages = async (): Promise<string[]> => {
+  if (typeof window !== 'undefined' && window.electronAPI?.getAvailableSpellCheckerLanguages) {
+    try {
+      return await window.electronAPI.getAvailableSpellCheckerLanguages();
+    } catch (err) {
+      console.warn('[RPGSA] getAvailableSpellCheckerLanguages error:', err);
+    }
+  }
+  return [];
+};
+
+export const addWordToSpellCheckerDictionary = async (word: string): Promise<boolean> => {
+  if (typeof window !== 'undefined' && window.electronAPI?.addWordToSpellCheckerDictionary) {
+    try {
+      return await window.electronAPI.addWordToSpellCheckerDictionary(word);
+    } catch (err) {
+      console.warn('[RPGSA] addWordToSpellCheckerDictionary error:', err);
+    }
+  }
+  return false;
+};
+
+export const replaceMisspelling = async (suggestion: string): Promise<boolean> => {
+  if (typeof window !== 'undefined' && window.electronAPI?.replaceMisspelling) {
+    try {
+      return await window.electronAPI.replaceMisspelling(suggestion);
+    } catch (err) {
+      console.warn('[RPGSA] replaceMisspelling error:', err);
+    }
+  }
+  return false;
+};
+
+export const subscribeToSpellCheckMenuData = (
+  callback: (data: {
+    misspelledWord: string | null;
+    suggestions: string[];
+    x: number;
+    y: number;
+    isEditable: boolean;
+    selectionText: string;
+  }) => void
+): (() => void) => {
+  if (typeof window !== 'undefined' && window.electronAPI?.onSpellCheckMenuData) {
+    return window.electronAPI.onSpellCheckMenuData(callback);
+  }
+  return () => {};
+};
+
+
+
+

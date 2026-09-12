@@ -226,9 +226,10 @@ export default function ListenerSession() {
 }
 
 export async function getStaticPaths() {
+    const isExport = process.env.NEXT_EXPORT === 'true' || process.env.CAPACITOR_BUILD === 'true';
     return {
         paths: [],
-        fallback: false,
+        fallback: isExport ? false : 'blocking',
     };
 }
 

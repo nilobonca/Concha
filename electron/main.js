@@ -175,6 +175,7 @@ async function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true,
+      spellcheck: true,
     },
     icon: fs.existsSync(path.join(__dirname, '../public/favicon.ico'))
       ? path.join(__dirname, '../public/favicon.ico')
@@ -216,6 +217,26 @@ async function createWindow() {
 
   // Register Global Hotkeys for Soundboard
   registerGlobalShortcuts();
+
+  // Context-menu handler: suppress native OS menu completely and send spellcheck data to renderer
+  mainWindow.webContents.on('context-menu', (event, params) => {
+    event.preventDefault();
+
+    if (
+      params.isEditable ||
+      (params.selectionText && params.selectionText.trim().length > 0) ||
+      Boolean(params.misspelledWord)
+    ) {
+      mainWindow.webContents.send('spellcheck-menu-data', {
+        misspelledWord: params.misspelledWord || null,
+        suggestions: params.dictionarySuggestions || [],
+        x: params.x,
+        y: params.y,
+        isEditable: Boolean(params.isEditable),
+        selectionText: params.selectionText || '',
+      });
+    }
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -595,6 +616,91 @@ ipcMain.handle('save-vaults-registry', async (event, data) => {
     return false;
   }
   return saveVaultsToDisk(data);
+});
+
+// ==========================================
+// Spell Checker Configuration IPC Handlers
+// ==========================================
+ipcMain.handle('set-spellchecker-config', async (_event, { enabled, languages, language }) => {
+  try {
+    if (session && session.defaultSession) {
+      if (typeof session.defaultSession.setSpellCheckerEnabled === 'function') {
+        session.defaultSession.setSpellCheckerEnabled(Boolean(enabled));
+      }
+      const activeLanguages = languages || (language ? [language] : ['pt-BR']);
+      const langArray = Array.isArray(activeLanguages) ? activeLanguages : [activeLanguages];
+      if (typeof session.defaultSession.setSpellCheckerLanguages === 'function') {
+        session.defaultSession.setSpellCheckerLanguages(langArray);
+      }
+      console.log(`[RPGSA Electron] SpellChecker configured: enabled=${enabled}, languages=${langArray.join(', ')}`);
+      return true;
+    }
+  } catch (err) {
+    console.error('[RPGSA Electron] Failed configuring spellchecker:', err);
+  }
+  return false;
+});
+
+ipcMain.handle('get-spellchecker-config', async () => {
+  try {
+    if (session && session.defaultSession) {
+      const isEnabled = typeof session.defaultSession.isSpellCheckerEnabled === 'function'
+        ? session.defaultSession.isSpellCheckerEnabled()
+        : true;
+      const languages = typeof session.defaultSession.getSpellCheckerLanguages === 'function'
+        ? (session.defaultSession.getSpellCheckerLanguages() || ['pt-BR'])
+        : ['pt-BR'];
+      return {
+        enabled: isEnabled,
+        languages,
+        language: languages[0] || 'pt-BR',
+      };
+    }
+  } catch (err) {
+    console.warn('[RPGSA Electron] Failed getting spellchecker config:', err);
+  }
+  return { enabled: true, languages: ['pt-BR'], language: 'pt-BR' };
+});
+
+ipcMain.handle('get-available-spellchecker-languages', async () => {
+  try {
+    if (session && session.defaultSession) {
+      return session.defaultSession.availableSpellCheckerLanguages || ['pt-BR', 'pt-PT', 'en-US', 'en-GB', 'es-ES', 'fr-FR', 'de-DE', 'it-IT'];
+    }
+  } catch (err) {
+    console.warn('[RPGSA Electron] Failed getting available spellchecker languages:', err);
+  }
+  return ['pt-BR', 'pt-PT', 'en-US', 'en-GB', 'es-ES', 'fr-FR', 'de-DE', 'it-IT'];
+});
+
+ipcMain.handle('add-word-to-dictionary', async (_event, word) => {
+  try {
+    if (word && typeof word === 'string' && session && session.defaultSession) {
+      const trimmed = word.trim();
+      if (trimmed && typeof session.defaultSession.addWordToSpellCheckerDictionary === 'function') {
+        const added = session.defaultSession.addWordToSpellCheckerDictionary(trimmed);
+        console.log(`[RPGSA Electron] Word "${trimmed}" added to spellchecker dictionary (result: ${added})`);
+        return Boolean(added);
+      }
+    }
+  } catch (err) {
+    console.error('[RPGSA Electron] Failed adding word to dictionary:', err);
+  }
+  return false;
+});
+
+ipcMain.handle('replace-misspelling', async (_event, suggestion) => {
+  if (mainWindow && !mainWindow.isDestroyed() && suggestion) {
+    try {
+      if (typeof mainWindow.webContents.replaceMisspelling === 'function') {
+        mainWindow.webContents.replaceMisspelling(suggestion);
+        return true;
+      }
+    } catch (err) {
+      console.warn('[RPGSA Electron] Failed to replace misspelling:', err);
+    }
+  }
+  return false;
 });
 
 // ==========================================

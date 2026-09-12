@@ -22,6 +22,7 @@ import { ExportModal } from '@/components/ExportModal';
 import { ImportConflictModal } from '@/components/ImportConflictModal';
 import { parseBackupFile, ParsedImportData } from '@/utils/exportSystem/importUtils';
 import { isElectron, setWindowMode } from '@/utils/electronHelper';
+import { navigateToProject, navigateToBoard } from '@/utils/navigationHelper';
 import { v4 as uuidv4 } from 'uuid';
 import clsx from 'clsx';
 
@@ -168,9 +169,9 @@ export default function Dashboard() {
       setWindowMode('workspace');
     }
     if (canvas.canvasType === 'board') {
-      router.push(`/board/${canvas.id}`);
+      navigateToBoard(router, canvas.id);
     } else {
-      router.push(`/project/${canvas.id}`);
+      navigateToProject(router, canvas.id, canvas.name);
     }
   };
 
@@ -229,9 +230,9 @@ export default function Dashboard() {
         order: 0,
       };
       addLayer(newPage);
-      router.push(`/project/${newProjectId}`);
+      navigateToProject(router, newProjectId, newName);
     } else {
-      router.push(`/board/${newProjectId}`);
+      navigateToBoard(router, newProjectId);
     }
   };
 

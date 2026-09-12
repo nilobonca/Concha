@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { handleTextareaFormattingShortcut, handleTextareaAutoPairing } from '@/utils/textareaFormatting';
+import { useSpellCheckStore } from '@/store/spellCheckStore';
 
 interface VaultSourceEditorProps {
   value: string;
@@ -9,6 +10,9 @@ interface VaultSourceEditorProps {
 
 export const VaultSourceEditor: React.FC<VaultSourceEditorProps> = ({ value, onChange, onBlur }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const spellCheckEnabled = useSpellCheckStore(s => s.enabled);
+  const spellCheckLanguages = useSpellCheckStore(s => s.languages);
+  const langAttr = (spellCheckLanguages && spellCheckLanguages.length > 0 ? spellCheckLanguages : ['pt-BR']).join(' ');
 
   // Auto-resize textarea height to content
   useEffect(() => {
@@ -54,7 +58,8 @@ export const VaultSourceEditor: React.FC<VaultSourceEditorProps> = ({ value, onC
         onKeyDown={handleKeyDown}
         onBlur={onBlur}
         placeholder="# Escreva seu Markdown puro aqui..."
-        spellCheck={false}
+        spellCheck={spellCheckEnabled}
+        lang={langAttr}
         className="w-full flex-1 bg-transparent text-stone-800 dark:text-neutral-200 outline-none resize-none overflow-hidden font-mono text-sm leading-relaxed tracking-wide placeholder:text-stone-400 dark:placeholder:text-neutral-600"
       />
     </div>

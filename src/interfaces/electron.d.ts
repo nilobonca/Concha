@@ -62,6 +62,21 @@ export interface ElectronAPI {
     }>;
     activeVaultId?: string;
   }) => Promise<boolean>;
+
+  // Spell Checker API
+  setSpellCheckerConfig?: (enabled: boolean, languages: string[] | string) => Promise<boolean>;
+  getSpellCheckerConfig?: () => Promise<{ enabled: boolean; language: string; languages?: string[] } | null>;
+  getAvailableSpellCheckerLanguages?: () => Promise<string[]>;
+  addWordToSpellCheckerDictionary?: (word: string) => Promise<boolean>;
+  replaceMisspelling?: (suggestion: string) => Promise<boolean>;
+  onSpellCheckMenuData?: (callback: (data: {
+    misspelledWord: string | null;
+    suggestions: string[];
+    x: number;
+    y: number;
+    isEditable: boolean;
+    selectionText: string;
+  }) => void) => () => void;
 }
 
 declare global {

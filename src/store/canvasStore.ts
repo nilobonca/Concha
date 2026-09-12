@@ -69,7 +69,16 @@ interface CanvasSelectionState {
   clearSelection: () => void;
 }
 
-export type CanvasGlobalStore = CanvasUIState & CanvasSelectionState;
+interface CanvasLoadingState {
+  isEnteringProject: boolean;
+  enteringProjectName: string | null;
+  isProjectLoading: boolean;
+  startEnteringProject: (projectName?: string) => void;
+  finishEnteringProject: () => void;
+  setIsProjectLoading: (loading: boolean) => void;
+}
+
+export type CanvasGlobalStore = CanvasUIState & CanvasSelectionState & CanvasLoadingState;
 
 const idbStorage: StateStorage = {
   getItem: async (name: string): Promise<string | null> => {
@@ -223,6 +232,22 @@ export const useCanvasGlobalStore = create<CanvasGlobalStore>()(
 
       isTheaterMode: false,
       setIsTheaterMode: (val) => set({ isTheaterMode: val }),
+
+      // Loading Initial States
+      isEnteringProject: false,
+      enteringProjectName: null,
+      isProjectLoading: false,
+      startEnteringProject: (projectName) => set({
+        isEnteringProject: true,
+        enteringProjectName: projectName || null,
+        isProjectLoading: true
+      }),
+      finishEnteringProject: () => set({
+        isEnteringProject: false,
+        enteringProjectName: null,
+        isProjectLoading: false
+      }),
+      setIsProjectLoading: (loading) => set({ isProjectLoading: loading }),
 
       // Selection Initial States
       activeAreaIds: new Set(),

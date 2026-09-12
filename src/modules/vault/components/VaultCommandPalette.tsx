@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { useVaultStore } from '../hooks/useVaultStore';
+import { navigateToProject } from '@/utils/navigationHelper';
 import { Search, FileText, Plus, CornerDownLeft, Music, Image as ImageIcon, FolderKanban } from 'lucide-react';
 
 export type CommandPaletteItem = 
@@ -102,7 +103,7 @@ export const VaultCommandPalette: React.FC = () => {
         if (item.canvasType === 'board') {
           openCanvasTab(item.id, item.name);
         } else {
-          router.push(`/project/${item.id}`);
+          navigateToProject(router, item.id, item.name);
         }
       } else {
         await openDocument(item.path);
