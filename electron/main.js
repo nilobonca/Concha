@@ -280,10 +280,82 @@ ipcMain.handle('select-directory', async () => {
 });
 
 ipcMain.handle('open-folder-in-explorer', async (event, folderPath) => {
-  if (folderPath) {
-    await shell.openPath(folderPath);
-    return true;
+  if (!folderPath || typeof folderPath !== 'string') return false;
+  console.log('[RPGSA Electron] open-folder-in-explorer requested for:', folderPath);
+
+  // 1. If the path physically exists, open it directly
+  if (fs.existsSync(folderPath)) {
+    try {
+      const err = await shell.openPath(folderPath);
+      if (!err) return true;
+      console.warn('[RPGSA Electron] shell.openPath error on existing folder:', err);
+    } catch (e) {
+      console.error('[RPGSA Electron] Exception in shell.openPath:', e);
+    }
   }
+
+  // 2. If path doesn't exist, it might be a folder name or an outdated mock path (e.g. D:\RPG\Campanhas\boncanotes)
+  const folderName = path.basename(folderPath);
+  const resolved = resolveVaultPhysicalPath({ name: folderName, folderName });
+  if (resolved && fs.existsSync(resolved)) {
+    console.log(`[RPGSA Electron] Resolved path "${folderPath}" to "${resolved}"`);
+    const err = await shell.openPath(resolved);
+    if (!err) {
+      // Update diskData with the correct resolved path
+      try {
+        const diskData = loadVaultsFromDisk();
+        if (diskData && Array.isArray(diskData.vaults)) {
+          let updated = false;
+          for (const v of diskData.vaults) {
+            if (v.folderName === folderName || v.name === folderName || v.path === folderPath) {
+              v.path = resolved;
+              updated = true;
+            }
+          }
+          if (updated) {
+            saveVaultsToDisk(diskData);
+          }
+        }
+      } catch (saveErr) {
+        console.warn('[RPGSA Electron] Failed updating registry after path resolution:', saveErr);
+      }
+      return true;
+    }
+  }
+
+  // 3. Fallback: Prompt user to locate the folder via Windows dialog if not found
+  if (mainWindow) {
+    try {
+      const result = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openDirectory'],
+        title: `Localizar a pasta "${folderName || 'do Vault'}" no computador`
+      });
+      if (!result.canceled && result.filePaths.length > 0) {
+        const selectedPath = result.filePaths[0];
+        await shell.openPath(selectedPath);
+        // Persist to registry
+        try {
+          const diskData = loadVaultsFromDisk();
+          if (diskData && Array.isArray(diskData.vaults)) {
+            let updated = false;
+            for (const v of diskData.vaults) {
+              if (v.folderName === folderName || v.name === folderName || v.path === folderPath) {
+                v.path = selectedPath;
+                updated = true;
+              }
+            }
+            if (updated) {
+              saveVaultsToDisk(diskData);
+            }
+          }
+        } catch {}
+        return true;
+      }
+    } catch (dialogErr) {
+      console.warn('[RPGSA Electron] Error showing folder location dialog:', dialogErr);
+    }
+  }
+
   return false;
 });
 
@@ -393,28 +465,110 @@ function getVaultsFilePath() {
   return path.join(app.getPath('userData'), VAULTS_FILE_NAME);
 }
 
+// Validador estrito de estrutura para garantir que apenas cofres legítimos sejam registrados
+function isValidVaultObject(v) {
+  if (!v || typeof v !== 'object') return false;
+  if (!v.id || typeof v.id !== 'string') return false;
+  if (v.storageType !== 'fsa' && v.storageType !== 'idb') return false;
+  if (!v.name || typeof v.name !== 'string' || v.name.trim().length === 0) return false;
+  // Rejeita arestas de canvas, nós de diagramas ou outros registros não relacionados
+  if ('fromId' in v || 'toId' in v || 'boardId' in v) return false;
+  return true;
+}
+
+function getVaultQualityScore(v) {
+  let score = 0;
+  if (!v) return 0;
+  if (v.name && v.name !== 'New folder' && v.name !== 'Nova pasta' && v.name !== 'Vault') {
+    score += 10;
+  }
+  if (v.path && v.folderName && path.basename(v.path).toLowerCase() === v.folderName.toLowerCase()) {
+    score += 5;
+  }
+  return score;
+}
+
+// Sanitização e desduplicação de vaults:
+// - Remove entradas corrompidas ou espúrias
+// - Desduplica por ID e também por caminho físico no HD para evitar múltiplos registros da mesma pasta
+function sanitizeAndDeduplicateVaults(vaultList) {
+  if (!Array.isArray(vaultList)) return [];
+
+  const valid = vaultList.filter(isValidVaultObject);
+
+  // 1. Desduplicar por ID retendo a entrada de melhor qualidade ou mais recente
+  const byId = new Map();
+  for (const v of valid) {
+    const existing = byId.get(v.id);
+    if (!existing) {
+      byId.set(v.id, v);
+    } else {
+      const existingScore = getVaultQualityScore(existing);
+      const vScore = getVaultQualityScore(v);
+      if (vScore > existingScore || (vScore === existingScore && (v.updatedAt || 0) >= (existing.updatedAt || 0))) {
+        byId.set(v.id, v);
+      }
+    }
+  }
+
+  // 2. Desduplicar vaults FSA que apontem para a mesma pasta física normalizada no computador
+  const byPathOrId = new Map();
+  for (const v of byId.values()) {
+    if (v.storageType === 'fsa' && v.path) {
+      try {
+        const normalized = path.normalize(v.path).toLowerCase();
+        const existing = byPathOrId.get(normalized);
+        if (!existing) {
+          byPathOrId.set(normalized, v);
+        } else {
+          const existingScore = getVaultQualityScore(existing);
+          const vScore = getVaultQualityScore(v);
+          if (vScore > existingScore || (vScore === existingScore && (v.updatedAt || 0) >= (existing.updatedAt || 0))) {
+            byPathOrId.set(normalized, v);
+          }
+        }
+      } catch {
+        byPathOrId.set(`id:${v.id}`, v);
+      }
+    } else {
+      byPathOrId.set(`id:${v.id}`, v);
+    }
+  }
+
+  return Array.from(byPathOrId.values());
+}
+
 // Helper to resolve or verify physical paths for local vaults
 function resolveVaultPhysicalPath(vault) {
-  if (vault.storageType === 'idb' || vault.id === 'default-vault') return undefined;
+  if (!vault || vault.storageType === 'idb' || vault.id === 'default-vault') return undefined;
   if (vault.path && fs.existsSync(vault.path)) return vault.path;
 
   const namesToTry = [];
   if (vault.folderName) namesToTry.push(vault.folderName);
   if (vault.name && vault.name !== 'Vault' && vault.name !== 'Meu Vault Local') namesToTry.push(vault.name);
-  if (vault.id === 'fsa-ad34920d' || vault.id === 'fsa-main') namesToTry.push('boncanotes');
+
+  // De-duplicate candidate names
+  const uniqueNames = Array.from(new Set(namesToTry.filter(Boolean)));
 
   const userProfile = process.env.USERPROFILE || '';
   const baseDirs = [
     'G:\\My Drive',
+    'G:\\Meu Drive',
     path.join(userProfile, 'Desktop'),
     path.join(userProfile, 'Documents'),
     path.join(userProfile, 'OneDrive'),
+    path.join(userProfile, 'Downloads'),
     'D:\\',
-    'D:\\Projetos'
+    'D:\\Projetos',
+    'D:\\RPG',
+    'D:\\Campanhas',
+    'C:\\'
   ].filter(Boolean);
 
+  // 1. Direct candidate matching
   for (const base of baseDirs) {
-    for (const name of namesToTry) {
+    if (!fs.existsSync(base)) continue;
+    for (const name of uniqueNames) {
       try {
         const candidate = path.join(base, name);
         if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
@@ -423,10 +577,29 @@ function resolveVaultPhysicalPath(vault) {
       } catch {}
     }
   }
+
+  // 2. Case-insensitive search inside base directories (depth 1)
+  for (const base of baseDirs) {
+    try {
+      if (!fs.existsSync(base)) continue;
+      const entries = fs.readdirSync(base, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          const lowerEntry = entry.name.toLowerCase();
+          for (const name of uniqueNames) {
+            if (lowerEntry === name.toLowerCase()) {
+              return path.join(base, entry.name);
+            }
+          }
+        }
+      }
+    } catch {}
+  }
+
   return vault.path || undefined;
 }
 
-// Scans LevelDB logs across all possible app data folders (current and legacy) to recover any vaults registered in earlier versions
+// Executado estritamente como migração inicial caso o arquivo permanente vaults-registry.json ainda não exista
 function recoverVaultsFromLevelDB() {
   try {
     const vaultMap = new Map();
@@ -448,7 +621,7 @@ function recoverVaultsFromLevelDB() {
           const filePath = path.join(leveldbDir, f);
           const content = fs.readFileSync(filePath, 'latin1');
 
-          // 1. Try standard JSON array matches
+          // 1. Try standard JSON array matches com validação estrita
           const arrayRegex = /\[\s*\{[^{}]*"id"[^{}]*\}\s*(?:,\s*\{[^{}]*"id"[^{}]*\}\s*)*\]/g;
           let arrMatch;
           while ((arrMatch = arrayRegex.exec(content)) !== null) {
@@ -456,7 +629,7 @@ function recoverVaultsFromLevelDB() {
               const list = JSON.parse(arrMatch[0]);
               if (Array.isArray(list)) {
                 for (const v of list) {
-                  if (!v || !v.id) continue;
+                  if (!isValidVaultObject(v)) continue;
                   const existing = vaultMap.get(v.id);
                   if (!existing || (v.updatedAt || 0) >= (existing.updatedAt || 0)) {
                     vaultMap.set(v.id, v);
@@ -466,7 +639,7 @@ function recoverVaultsFromLevelDB() {
             } catch {}
           }
 
-          // 2. Resilient object-level extractor (bypasses binary control character corruption in LevelDB sstables)
+          // 2. Resilient object-level extractor (valida apenas cofres legítimos)
           const objRegex = /\{[^{}]*"(?:id|name|storageType)"[^{}]*\}/g;
           let objMatch;
           while ((objMatch = objRegex.exec(content)) !== null) {
@@ -483,19 +656,21 @@ function recoverVaultsFromLevelDB() {
             const updatedAtMatch = rawObj.match(/"updatedAt"\s*:\s*(\d+)/);
             const isDefaultMatch = rawObj.match(/"isDefault"\s*:\s*(true|false)/);
 
-            const existing = vaultMap.get(id);
-            const updatedAt = updatedAtMatch ? Number(updatedAtMatch[1]) : (existing?.updatedAt || 0);
+            const candidate = {
+              id,
+              name: nameMatch ? nameMatch[1] : (id === 'default-vault' ? 'Meu Vault Local' : ''),
+              storageType: storageTypeMatch ? storageTypeMatch[1] : (id.startsWith('fsa-') ? 'fsa' : 'idb'),
+              folderName: folderNameMatch ? folderNameMatch[1] : undefined,
+              path: pathMatch ? pathMatch[1] : undefined,
+              updatedAt: updatedAtMatch ? Number(updatedAtMatch[1]) : 0,
+              isDefault: isDefaultMatch ? isDefaultMatch[1] === 'true' : (id === 'default-vault'),
+            };
 
-            if (!existing || updatedAt >= (existing.updatedAt || 0)) {
-              vaultMap.set(id, {
-                id,
-                name: nameMatch ? nameMatch[1] : (existing?.name || (id === 'default-vault' ? 'Meu Vault Local' : 'Vault')),
-                storageType: storageTypeMatch ? storageTypeMatch[1] : (existing?.storageType || (id.startsWith('fsa-') ? 'fsa' : 'idb')),
-                folderName: folderNameMatch ? folderNameMatch[1] : existing?.folderName,
-                path: pathMatch ? pathMatch[1] : existing?.path,
-                updatedAt,
-                isDefault: isDefaultMatch ? isDefaultMatch[1] === 'true' : (existing?.isDefault ?? (id === 'default-vault')),
-              });
+            if (!isValidVaultObject(candidate)) continue;
+
+            const existing = vaultMap.get(id);
+            if (!existing || candidate.updatedAt >= (existing.updatedAt || 0)) {
+              vaultMap.set(id, candidate);
             }
           }
         } catch {}
@@ -509,7 +684,7 @@ function recoverVaultsFromLevelDB() {
 
     const recoveredList = Array.from(vaultMap.values());
     if (recoveredList.length > 0) {
-      console.log(`[RPGSA Electron] Successfully recovered ${recoveredList.length} vault(s) from previous LevelDB logs:`, recoveredList.map(v => `${v.name} (${v.id})`));
+      console.log(`[RPGSA Electron] Migrated ${recoveredList.length} vault(s) from previous LevelDB logs:`, recoveredList.map(v => `${v.name} (${v.id})`));
       return recoveredList;
     }
   } catch (err) {
@@ -521,11 +696,14 @@ function recoverVaultsFromLevelDB() {
 function loadVaultsFromDisk() {
   const filePath = getVaultsFilePath();
   let diskData = null;
+  let fileExisted = false;
+
   try {
     if (fs.existsSync(filePath)) {
+      fileExisted = true;
       const raw = fs.readFileSync(filePath, 'utf-8');
       const parsed = JSON.parse(raw);
-      if (parsed && Array.isArray(parsed.vaults) && parsed.vaults.length > 0) {
+      if (parsed && Array.isArray(parsed.vaults)) {
         diskData = parsed;
       }
     }
@@ -533,61 +711,75 @@ function loadVaultsFromDisk() {
     console.error('[RPGSA Electron] Error reading vaults-registry.json:', err);
   }
 
-  // Always attempt recovery from old LevelDB logs to ensure no vaults are omitted
-  const recovered = recoverVaultsFromLevelDB();
+  // Se vaults-registry.json já existe no disco, ELE É A FONTE DA VERDADE EXCLUSIVA.
+  // Nunca realiza varredura no LevelDB para evitar ressuscitar vaults excluídos ou dados temporários.
+  if (fileExisted && diskData && Array.isArray(diskData.vaults)) {
+    const originalLength = diskData.vaults.length;
+    const sanitized = sanitizeAndDeduplicateVaults(diskData.vaults);
+    let changed = sanitized.length !== originalLength;
 
-  if (diskData && diskData.vaults) {
-    // If recovered vaults exist, merge them into diskData without losing any vault
-    if (recovered && recovered.length > 0) {
-      const vaultMap = new Map();
-      // First add recovered vaults
-      for (const v of recovered) {
-        if (v && v.id) vaultMap.set(v.id, v);
-      }
-      // Then merge disk vaults (keeping disk updates if newer or existing)
-      for (const v of diskData.vaults) {
-        if (!v || !v.id) continue;
-        const existing = vaultMap.get(v.id);
-        if (!existing) {
-          vaultMap.set(v.id, v);
-        } else {
-          vaultMap.set(v.id, {
-            ...existing,
-            ...v,
-            path: v.path || existing.path || resolveVaultPhysicalPath(v),
-            folderName: v.folderName || existing.folderName,
-            updatedAt: Math.max(v.updatedAt || 0, existing.updatedAt || 0),
-          });
+    // Garante que todos os vaults FSA possuam caminho físico resolvido
+    for (const v of sanitized) {
+      if (v && v.storageType === 'fsa' && (!v.path || !fs.existsSync(v.path))) {
+        const resolved = resolveVaultPhysicalPath(v);
+        if (resolved && resolved !== v.path) {
+          v.path = resolved;
+          changed = true;
+          console.log(`[RPGSA Electron] Auto-resolved physical path for vault "${v.name}" (${v.id}): ${resolved}`);
         }
       }
-
-      const mergedList = Array.from(vaultMap.values());
-      const activeId = diskData.activeVaultId || mergedList.find(v => !v.isDefault)?.id || 'default-vault';
-      const mergedData = {
-        vaults: mergedList,
-        activeVaultId: activeId
-      };
-      // If new vaults were merged in, save back to disk
-      if (mergedList.length !== diskData.vaults.length) {
-        saveVaultsToDisk(mergedData);
-      }
-      return mergedData;
     }
-    return diskData;
+
+    // Valida activeVaultId
+    let activeId = diskData.activeVaultId;
+    if (!activeId || !sanitized.some(v => v.id === activeId)) {
+      activeId = sanitized.find(v => !v.isDefault)?.id || sanitized[0]?.id || 'default-vault';
+      if (activeId !== diskData.activeVaultId) {
+        changed = true;
+      }
+    }
+
+    const finalData = {
+      vaults: sanitized,
+      activeVaultId: activeId
+    };
+
+    if (changed) {
+      saveVaultsToDisk(finalData);
+    }
+
+    return finalData;
   }
 
-  // Fallback: Recover from old LevelDB logs if diskData was empty
+  // Fallback: Apenas executa migração do LevelDB se vaults-registry.json NÃO existia no disco
+  console.log('[RPGSA Electron] vaults-registry.json não encontrado. Tentando migração única a partir do LevelDB...');
+  const recovered = recoverVaultsFromLevelDB();
   if (recovered && recovered.length > 0) {
-    const activeVault = recovered.find(v => !v.isDefault) || recovered[0];
+    const sanitized = sanitizeAndDeduplicateVaults(recovered);
+    const activeVault = sanitized.find(v => !v.isDefault) || sanitized[0];
     const data = {
-      vaults: recovered,
+      vaults: sanitized,
       activeVaultId: activeVault?.id || 'default-vault'
     };
     saveVaultsToDisk(data);
     return data;
   }
 
-  return null;
+  // Inicialização padrão de primeiro acesso
+  const defaultInitial = {
+    vaults: [
+      {
+        id: 'default-vault',
+        name: 'Meu Vault Local',
+        storageType: 'idb',
+        updatedAt: Date.now(),
+        isDefault: true
+      }
+    ],
+    activeVaultId: 'default-vault'
+  };
+  saveVaultsToDisk(defaultInitial);
+  return defaultInitial;
 }
 
 function saveVaultsToDisk(data) {
@@ -615,7 +807,29 @@ ipcMain.handle('save-vaults-registry', async (event, data) => {
   if (!data || !Array.isArray(data.vaults)) {
     return false;
   }
-  return saveVaultsToDisk(data);
+  const sanitized = sanitizeAndDeduplicateVaults(data.vaults);
+  for (const v of sanitized) {
+    if (v && v.storageType === 'fsa' && (!v.path || !fs.existsSync(v.path))) {
+      const resolved = resolveVaultPhysicalPath(v);
+      if (resolved) {
+        v.path = resolved;
+      }
+    }
+  }
+
+  const activeId = (data.activeVaultId && sanitized.some(v => v.id === data.activeVaultId))
+    ? data.activeVaultId
+    : (sanitized.find(v => !v.isDefault)?.id || sanitized[0]?.id || 'default-vault');
+
+  return saveVaultsToDisk({
+    vaults: sanitized,
+    activeVaultId: activeId
+  });
+});
+
+ipcMain.handle('resolve-vault-path', async (event, vault) => {
+  if (!vault) return undefined;
+  return resolveVaultPhysicalPath(vault);
 });
 
 // ==========================================

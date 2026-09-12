@@ -7,6 +7,7 @@ import { VaultDropOverlay } from './VaultDropOverlay';
 import { VaultEditor } from '../VaultEditor';
 import { VaultMediaPreview } from '../VaultMediaPreview';
 import { BoardView } from '@/modules/board/components/BoardView';
+import { DatabaseContainer } from '@/modules/database/components/DatabaseContainer';
 import { FileText, Search, Plus } from 'lucide-react';
 
 interface VaultPaneViewProps {
@@ -238,6 +239,11 @@ export const VaultPaneView: React.FC<VaultPaneViewProps> = ({
           pane.tabs.map(tab => {
             const isActive = tab.path === pane.activePath;
             const isTabCanvas = tab.type === 'canvas' || tab.path.startsWith('canvas:');
+            const isTabDatabase =
+              tab.type === 'database' ||
+              tab.path.toLowerCase().endsWith('.db.json') ||
+              tab.path.toLowerCase().endsWith('.database') ||
+              tab.path.toLowerCase().endsWith('.db.json.md');
             const canvasId = tab.canvasId || (tab.path.startsWith('canvas:') ? tab.path.replace('canvas:', '') : null);
 
             if (tab.type === 'empty' || tab.path.startsWith('new-tab:')) {
@@ -292,6 +298,11 @@ export const VaultPaneView: React.FC<VaultPaneViewProps> = ({
                   <VaultMediaPreview
                     path={tab.path}
                     type={tab.type}
+                  />
+                ) : isTabDatabase ? (
+                  <DatabaseContainer
+                    key={tab.path}
+                    databasePath={tab.path}
                   />
                 ) : (
                   <VaultEditor

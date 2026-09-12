@@ -25,9 +25,11 @@ import {
 import { VaultSourceEditor } from './VaultSourceEditor';
 import { VaultReadingView } from './VaultReadingView';
 import { Table, TableRow, TableCell, TableHeader } from '@tiptap/extension-table';
+import { CustomTableView } from '../extensions/CustomTableView';
 import { CodeBlockLowlight } from '@tiptap/extension-code-block-lowlight';
 import { common, createLowlight } from 'lowlight';
 import { Callout } from '../extensions/CalloutExtension';
+import { TiptapDatabaseExtension } from '@/modules/database/components/extensions/TiptapDatabaseExtension';
 import { 
   Code, FileText, Search, 
   Sparkles, ChevronUp, 
@@ -417,11 +419,13 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath, 
       }),
       Table.configure({
         resizable: true,
+        View: CustomTableView,
       }),
       TableRow,
       TableHeader,
       TableCell,
       Callout,
+      TiptapDatabaseExtension,
       CodeBlockLowlight.configure({
         lowlight,
       }),
@@ -1150,7 +1154,7 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath, 
             </div>
           )}
 
-          {/* Integrated Document Title (Notion/Obsidian style) */}
+          {/* Integrated Document Title */}
           <div className="mb-6 pt-2">
             {viewMode === 'reading' ? (
               <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-stone-900 dark:text-neutral-100 leading-tight">

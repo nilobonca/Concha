@@ -133,7 +133,7 @@ export function useVaultRegistry() {
 
     // Se solicitada a exclusão física da pasta do computador
     if (deleteDiskFolder) {
-      const physicalPath = targetVault?.path || (targetVault?.folderName && typeof window !== 'undefined' && window.electronAPI ? `D:\\RPG\\Campanhas\\${targetVault.folderName}` : undefined);
+      const physicalPath = targetVault?.path || (typeof window !== 'undefined' && targetVault?.folderName ? targetVault.folderName : undefined);
       await FSAStorageProvider.deletePhysicalDirectory(vaultId, physicalPath);
     }
 

@@ -18,7 +18,10 @@
     "!src/**/*",
     "!**/*.ts",
     "!**/*.tsx",
-    "!**/*.map"
+    "!**/*.map",
+    "!**/android/build/**",
+    "!**/android/src/**",
+    "!**/ios/**"
   ],
   "win": {
     "target": [
@@ -39,6 +42,7 @@
     "perMachine": false,
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
-    "shortcutName": "Concha"
+    "shortcutName": "Concha",
+    "deleteAppDataOnUninstall": false
   }
 }

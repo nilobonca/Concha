@@ -19,12 +19,13 @@ import { BoardTextElement } from './elements/BoardTextElement';
 import { BoardAudioElement } from './elements/BoardAudioElement';
 import { BoardImageElement } from './elements/BoardImageElement';
 import { BoardCanvasPreviewElement } from './elements/BoardCanvasPreviewElement';
+import { BoardDatabaseElement } from './elements/BoardDatabaseElement';
 import { SelectAudioModal } from './modals/SelectAudioModal';
 import { SelectImageModal } from './modals/SelectImageModal';
 import { SelectCanvasModal } from './modals/SelectCanvasModal';
 import { BoardVaultSearchModal } from './modals/BoardVaultSearchModal';
 import ContextMenu from '@/components/ContextMenu';
-import { StickyNote, Type, Music, Image as ImageIcon, FolderKanban, Search } from 'lucide-react';
+import { StickyNote, Type, Music, Image as ImageIcon, FolderKanban, Search, Database } from 'lucide-react';
 import { cleanLegacyPlaceholder, cleanDuplicateTitle } from '@/utils/cleanLegacyPlaceholder';
 
 interface BoardViewProps {
@@ -63,6 +64,7 @@ export const BoardView: React.FC<BoardViewProps> = ({
     createAudio,
     createImage,
     createCanvasPreview,
+    createDatabase,
     createConnectedElement,
     connectionsHook,
     audioModalOpen,
@@ -281,7 +283,20 @@ export const BoardView: React.FC<BoardViewProps> = ({
         dropPlacementPosRef.current = { x: worldPos.x - 130, y: worldPos.y - 75 };
         setCanvasModalOpen(true);
         break;
+      case 'database':
+        createDatabase({ title: 'Nova Base de Dados' }, { x: worldPos.x - 320, y: worldPos.y - 220 });
+        break;
     }
+  };
+
+  const handleDropDatabase = async (db: { path: string; name: string }, worldPos: { x: number; y: number }) => {
+    createDatabase(
+      {
+        databasePath: db.path,
+        title: db.name,
+      },
+      { x: worldPos.x - 320, y: worldPos.y - 220 }
+    );
   };
 
   const handleDropNote = async (note: { path: string; name: string }, worldPos: { x: number; y: number }) => {
@@ -415,6 +430,7 @@ export const BoardView: React.FC<BoardViewProps> = ({
         onSelectionBoxEnd={handleSelectionBox}
         onDropNote={handleDropNote}
         onDropVaultMedia={handleDropVaultMedia}
+        onDropDatabase={handleDropDatabase}
         onDropTool={handleDropTool}
         draggingTool={draggingTool}
         onCanvasContextMenu={(e, worldPos, screenPos) => {
@@ -479,6 +495,8 @@ export const BoardView: React.FC<BoardViewProps> = ({
               return <BoardImageElement {...commonProps} />;
             case 'canvas-preview':
               return <BoardCanvasPreviewElement {...commonProps} />;
+            case 'database':
+              return <BoardDatabaseElement {...commonProps} />;
             default:
               return null;
           }
@@ -489,6 +507,7 @@ export const BoardView: React.FC<BoardViewProps> = ({
       <BoardToolbar
         onAddNote={() => createNote()}
         onAddText={() => createText()}
+        onAddDatabase={() => createDatabase({ title: 'Nova Base de Dados' })}
         onOpenVaultSearch={() => setVaultSearchModalOpen(true)}
         onToolDragStart={setDraggingTool}
         onToolDragEnd={() => setDraggingTool(null)}
@@ -567,6 +586,17 @@ export const BoardView: React.FC<BoardViewProps> = ({
             createConnectedElement('canvas-preview', previewData);
           } else {
             createCanvasPreview(previewData, dropPlacementPosRef.current || undefined);
+            dropPlacementPosRef.current = null;
+          }
+        }}
+        onSelectDatabase={(db) => {
+          if (connectionsHook.pendingArrowContext) {
+            createConnectedElement('database', { databasePath: db.path, title: db.name });
+          } else {
+            createDatabase(
+              { databasePath: db.path, title: db.name },
+              dropPlacementPosRef.current || undefined
+            );
             dropPlacementPosRef.current = null;
           }
         }}
@@ -688,6 +718,20 @@ export const BoardView: React.FC<BoardViewProps> = ({
                   y: canvasContextMenu.worldPos.y - 75,
                 };
                 setCanvasModalOpen(true);
+                setCanvasContextMenu(null);
+              },
+            },
+            {
+              label: 'Adicionar Base de Dados...',
+              icon: <Database size={18} className="text-[#52B1FF]" />,
+              onClick: () => {
+                createDatabase(
+                  { title: 'Nova Base de Dados' },
+                  {
+                    x: canvasContextMenu.worldPos.x - 320,
+                    y: canvasContextMenu.worldPos.y - 220,
+                  }
+                );
                 setCanvasContextMenu(null);
               },
             },

@@ -139,7 +139,7 @@ export const VaultListSection: React.FC<VaultListSectionProps> = ({
 
   // Abrir pasta no explorador do Windows
   const handleOpenExplorer = async (vault: RegisteredVault) => {
-    const targetPath = vault.path || (vault.folderName ? `D:\\RPG\\Campanhas\\${vault.folderName}` : undefined);
+    const targetPath = vault.path || vault.folderName || vault.name;
     if (targetPath && typeof window !== 'undefined' && window.electronAPI?.openFolderInExplorer) {
       await window.electronAPI.openFolderInExplorer(targetPath);
     }
@@ -147,7 +147,7 @@ export const VaultListSection: React.FC<VaultListSectionProps> = ({
 
   // Copiar caminho do vault
   const handleCopyPath = (vault: RegisteredVault) => {
-    const targetPath = vault.path || (vault.folderName ? `D:\\RPG\\Campanhas\\${vault.folderName}` : vault.name);
+    const targetPath = vault.path || vault.folderName || vault.name;
     navigator.clipboard?.writeText(targetPath);
   };
 

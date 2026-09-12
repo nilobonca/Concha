@@ -64,6 +64,11 @@ export function formatCanvasDataForDisk(data: BoardData): string {
       const prevData = el.data as { targetName?: string };
       baseNode.type = 'group';
       baseNode.label = prevData.targetName || 'Quadro Conectado';
+    } else if (el.type === 'database') {
+      const dbData = el.data as { title?: string; databasePath?: string };
+      baseNode.type = 'file';
+      baseNode.file = dbData.databasePath || dbData.title || 'database';
+      baseNode.label = dbData.title || 'Base de Dados';
     } else {
       baseNode.type = 'text';
       baseNode.text = '';
@@ -122,7 +127,8 @@ export function parseCanvasDataFromDisk(jsonString: string, fallbackId: string, 
 
     if (Array.isArray(parsed.nodes)) {
       parsed.nodes.forEach((node: any, idx: number) => {
-        const type: BoardElementType = node.type === 'file' ? 'note' : (node.type === 'text' ? 'note' : 'note');
+        const isDbFile = typeof node.file === 'string' && (node.file.toLowerCase().endsWith('.database') || node.file.toLowerCase().endsWith('.db.json'));
+        const type: BoardElementType = isDbFile ? 'database' : (node.type === 'file' ? 'note' : (node.type === 'text' ? 'note' : 'note'));
         let content = node.text || '';
         let title = '';
 
@@ -138,15 +144,20 @@ export function parseCanvasDataFromDisk(jsonString: string, fallbackId: string, 
           type,
           x: typeof node.x === 'number' ? node.x : 100 + idx * 40,
           y: typeof node.y === 'number' ? node.y : 100 + idx * 40,
-          width: typeof node.width === 'number' ? node.width : 240,
-          height: typeof node.height === 'number' ? node.height : 180,
+          width: typeof node.width === 'number' ? node.width : (isDbFile ? 640 : 240),
+          height: typeof node.height === 'number' ? node.height : (isDbFile ? 440 : 180),
           zIndex: idx + 1,
-          data: {
-            title,
-            content,
-            color: node.color || '#3D2F1D',
-            filePath: node.file,
-          },
+          data: isDbFile
+            ? {
+                title: node.label || node.file?.split('/').pop()?.replace(/\.(database|db\.json)$/i, '') || 'Base de Dados',
+                databasePath: node.file,
+              }
+            : {
+                title,
+                content,
+                color: node.color || '#3D2F1D',
+                filePath: node.file,
+              },
         });
       });
     }

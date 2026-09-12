@@ -64,10 +64,24 @@ export const ActiveVaultPanelSection: React.FC<ActiveVaultPanelSectionProps> = (
     setIsEditingName(false);
   };
 
-  const displayPath = activeVault.path || (
+  const [resolvedPath, setResolvedPath] = useState<string | null>(activeVault.path || null);
+
+  useEffect(() => {
+    if (activeVault.path) {
+      setResolvedPath(activeVault.path);
+      return;
+    }
+    if (isFSA && typeof window !== 'undefined' && window.electronAPI?.resolveVaultPath) {
+      window.electronAPI.resolveVaultPath(activeVault).then((res) => {
+        if (res) setResolvedPath(res);
+      }).catch(() => {});
+    }
+  }, [activeVault, isFSA]);
+
+  const displayPath = resolvedPath || activeVault.path || (
     isFSA 
-      ? (activeVault.folderName ? `D:\\RPG\\Campanhas\\${activeVault.folderName}` : 'D:\\RPG\\Campanhas\\Baróvia')
-      : 'indexeddb://rpgsa-vault-storage'
+      ? (activeVault.folderName || activeVault.name || 'Pasta Local do Windows')
+      : 'Armazenamento Local (IndexedDB)'
   );
 
   const handleCopyPath = async () => {
@@ -82,7 +96,10 @@ export const ActiveVaultPanelSection: React.FC<ActiveVaultPanelSectionProps> = (
 
   const handleOpenExplorer = async () => {
     if (typeof window !== 'undefined' && window.electronAPI?.openFolderInExplorer) {
-      await window.electronAPI.openFolderInExplorer(displayPath);
+      const target = resolvedPath || activeVault.path || activeVault.folderName || activeVault.name;
+      if (target) {
+        await window.electronAPI.openFolderInExplorer(target);
+      }
     } else {
       handleCopyPath();
     }

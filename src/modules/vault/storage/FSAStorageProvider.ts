@@ -382,6 +382,7 @@ export class FSAStorageProvider implements IVaultStorageProvider {
             const isAudio = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'webm', 'opus'].includes(ext);
             const isImage = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'bmp', 'avif', 'ico'].includes(ext);
             const isCanvas = ext === 'canvas';
+            const isDatabase = ext === 'database' || name.toLowerCase().endsWith('.db.json') || name.toLowerCase().endsWith('.db.json.md');
 
             let fileSize = 0;
             let fileLastModified = Date.now();
@@ -394,23 +395,29 @@ export class FSAStorageProvider implements IVaultStorageProvider {
               console.warn(`[FSAStorageProvider] Aviso ao ler arquivo '${name}':`, fileErr);
             }
 
-            const fileType: 'note' | 'audio' | 'image' | 'file' | 'canvas' = isAudio
+            const fileType: 'note' | 'audio' | 'image' | 'file' | 'canvas' | 'database' = isAudio
               ? 'audio'
               : isImage
               ? 'image'
               : isCanvas
               ? 'canvas'
+              : isDatabase
+              ? 'database'
               : isMarkdown || isText
               ? 'note'
               : 'file';
 
             nodes.push({
               id: currentPath,
-              name: isMarkdown || isText ? name.replace(/\.(md|markdown|txt)$/i, '') : name,
+              name: isDatabase
+                ? name.replace(/\.(db\.json\.md|db\.json|database)$/i, '')
+                : isMarkdown || isText
+                ? name.replace(/\.(md|markdown|txt)$/i, '')
+                : name,
               path: currentPath,
               type: 'file',
               fileType,
-              extension: ext,
+              extension: isDatabase ? 'db.json' : ext,
               size: fileSize,
               updatedAt: fileLastModified
             });
@@ -438,7 +445,11 @@ export class FSAStorageProvider implements IVaultStorageProvider {
     if (!this.rootHandle) return '';
 
     try {
-      const fileHandle = await this.resolveFile(filePath, false);
+      let fileHandle = await this.resolveFile(filePath, false);
+      // Fallback para arquivos de database que possam ter sido salvos com .md anexado
+      if (!fileHandle && filePath.toLowerCase().endsWith('.db.json')) {
+        fileHandle = await this.resolveFile(`${filePath}.md`, false);
+      }
       if (!fileHandle) return '';
 
       const file = await fileHandle.getFile();
@@ -470,14 +481,15 @@ export class FSAStorageProvider implements IVaultStorageProvider {
     await this.ensureHandle();
 
     const cleanPath = sanitizeVaultPath(filePath, false);
-    // Ensure extension
-    const normalizedPath = cleanPath.endsWith('.md') ? cleanPath : `${cleanPath}.md`;
+    // Preserva extensões conhecidas (db.json, database, canvas, etc.) sem forçar .md
+    const hasKnownExt = /\.(md|markdown|txt|canvas|database|db\.json|json)$/i.test(cleanPath);
+    const normalizedPath = hasKnownExt ? cleanPath : `${cleanPath}.md`;
     await this.saveDocument(normalizedPath, initialContent);
 
     const parts = normalizedPath.split('/');
     const fileName = parts.pop()!;
     const folderPath = parts.join('/');
-    const title = fileName.replace(/\.md$/, '');
+    const title = fileName.replace(/\.(md|markdown|txt|canvas|database|db\.json\.md|db\.json|json)$/i, '');
 
     return {
       id: normalizedPath,
@@ -556,10 +568,30 @@ export class FSAStorageProvider implements IVaultStorageProvider {
     if (this.rootPhysicalPath) return this.rootPhysicalPath;
 
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('vault_root_physical_path');
+      const saved = localStorage.getItem(`vault_root_physical_path_${this._vaultId}`) || localStorage.getItem('vault_root_physical_path');
       if (saved) {
         this.rootPhysicalPath = saved;
         return saved;
+      }
+    }
+
+    // 1. Consulta o serviço nativo do processo principal do Electron (rápido e confiável)
+    if (typeof window !== 'undefined' && window.electronAPI?.resolveVaultPath) {
+      try {
+        const resolved = await window.electronAPI.resolveVaultPath({
+          id: this._vaultId,
+          name: this.vaultName,
+          folderName: this.vaultName,
+          storageType: 'fsa',
+        });
+        if (resolved) {
+          this.rootPhysicalPath = resolved;
+          localStorage.setItem(`vault_root_physical_path_${this._vaultId}`, resolved);
+          localStorage.setItem('vault_root_physical_path', resolved);
+          return resolved;
+        }
+      } catch (ipcErr) {
+        console.warn('[FSAStorageProvider] Erro ao consultar caminho físico no Electron:', ipcErr);
       }
     }
 

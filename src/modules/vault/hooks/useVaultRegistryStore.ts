@@ -22,14 +22,27 @@ export const DEFAULT_VAULT: RegisteredVault = {
   isDefault: true,
 };
 
+export function isValidVault(v: unknown): v is RegisteredVault {
+  if (!v || typeof v !== 'object') return false;
+  const candidate = v as Record<string, unknown>;
+  if (!candidate.id || typeof candidate.id !== 'string') return false;
+  if (candidate.storageType !== 'fsa' && candidate.storageType !== 'idb') return false;
+  if (!candidate.name || typeof candidate.name !== 'string' || candidate.name.trim().length === 0) return false;
+  if ('fromId' in candidate || 'toId' in candidate || 'boardId' in candidate) return false;
+  return true;
+}
+
 export function readVaultsFromLocalStorage(): RegisteredVault[] {
   if (typeof window === 'undefined') return [DEFAULT_VAULT];
   try {
     const raw = localStorage.getItem(VAULT_REGISTRY_KEY);
     if (raw) {
-      const parsed: RegisteredVault[] = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        const valid = parsed.filter(isValidVault);
+        if (valid.length > 0) {
+          return valid;
+        }
       }
     }
   } catch (e) {
@@ -38,26 +51,43 @@ export function readVaultsFromLocalStorage(): RegisteredVault[] {
   return [DEFAULT_VAULT];
 }
 
+function getVaultQualityScore(v: RegisteredVault): number {
+  let score = 0;
+  if (!v) return 0;
+  if (v.name && v.name !== 'New folder' && v.name !== 'Nova pasta' && v.name !== 'Vault') {
+    score += 10;
+  }
+  if (v.path && v.folderName) {
+    const baseName = v.path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || '';
+    if (baseName.toLowerCase() === v.folderName.toLowerCase()) {
+      score += 5;
+    }
+  }
+  return score;
+}
+
 /**
  * Combina duas listas de vaults registrados sem duplicidade de ID,
- * mantendo a entrada mais recentemente atualizada.
+ * mantendo a entrada mais recentemente atualizada e descartando corrompidos.
  */
 export function mergeVaultLists(listA: RegisteredVault[], listB: RegisteredVault[]): RegisteredVault[] {
   const map = new Map<string, RegisteredVault>();
 
   for (const v of listA) {
-    if (v && v.id) {
+    if (isValidVault(v)) {
       map.set(v.id, v);
     }
   }
 
   for (const v of listB) {
-    if (!v || !v.id) continue;
+    if (!isValidVault(v)) continue;
     const existing = map.get(v.id);
     if (!existing) {
       map.set(v.id, v);
     } else {
-      const useB = (v.updatedAt || 0) >= (existing.updatedAt || 0);
+      const existingScore = getVaultQualityScore(existing);
+      const vScore = getVaultQualityScore(v);
+      const useB = vScore > existingScore || (vScore === existingScore && (v.updatedAt || 0) >= (existing.updatedAt || 0));
       map.set(v.id, {
         ...existing,
         ...v,
@@ -70,7 +100,27 @@ export function mergeVaultLists(listA: RegisteredVault[], listB: RegisteredVault
     }
   }
 
-  const merged = Array.from(map.values());
+  // Desduplica vaults FSA apontando para a mesma pasta física normalizada
+  const byPathOrId = new Map<string, RegisteredVault>();
+  for (const v of map.values()) {
+    if (v.storageType === 'fsa' && v.path) {
+      const norm = v.path.replace(/[\\/]+/g, '/').toLowerCase();
+      const existing = byPathOrId.get(norm);
+      if (!existing) {
+        byPathOrId.set(norm, v);
+      } else {
+        const existingScore = getVaultQualityScore(existing);
+        const vScore = getVaultQualityScore(v);
+        if (vScore > existingScore || (vScore === existingScore && (v.updatedAt || 0) >= (existing.updatedAt || 0))) {
+          byPathOrId.set(norm, v);
+        }
+      }
+    } else {
+      byPathOrId.set(`id:${v.id}`, v);
+    }
+  }
+
+  const merged = Array.from(byPathOrId.values());
   if (merged.length === 0) {
     return [DEFAULT_VAULT];
   }
@@ -79,8 +129,9 @@ export function mergeVaultLists(listA: RegisteredVault[], listB: RegisteredVault
 
 export function persistVaultsToLocalStorage(vaults: RegisteredVault[], activeVaultId?: string): void {
   if (typeof window === 'undefined') return;
+  const valid = vaults.filter(isValidVault);
   try {
-    localStorage.setItem(VAULT_REGISTRY_KEY, JSON.stringify(vaults));
+    localStorage.setItem(VAULT_REGISTRY_KEY, JSON.stringify(valid));
   } catch (e) {
     console.error('Erro ao salvar vaults no localStorage:', e);
   }
@@ -89,7 +140,7 @@ export function persistVaultsToLocalStorage(vaults: RegisteredVault[], activeVau
   if (window.electronAPI?.saveVaultsRegistry) {
     const currentActiveId = activeVaultId || localStorage.getItem('vault_active_id') || undefined;
     window.electronAPI.saveVaultsRegistry({
-      vaults,
+      vaults: valid,
       activeVaultId: currentActiveId,
     }).catch((err) => {
       console.warn('[useVaultRegistryStore] Falha ao salvar vaults no disco via Electron:', err);
@@ -121,11 +172,28 @@ export const useVaultRegistryStore = create<VaultRegistryStore>((set) => ({
       try {
         const diskData = await window.electronAPI.loadVaultsRegistry();
         if (diskData && Array.isArray(diskData.vaults) && diskData.vaults.length > 0) {
-          // Funde os registros do disco com os do localStorage sem perder nenhum vault
-          const merged = mergeVaultLists(diskData.vaults, localVaults);
+          const validDiskVaults = diskData.vaults.filter(isValidVault);
+          const authoritativeList = validDiskVaults.length > 0 ? validDiskVaults : localVaults;
+          const merged = mergeVaultLists(authoritativeList, []);
+
+          // Se houver algum vault FSA sem caminho físico, tenta resolver via IPC
+          if (window.electronAPI?.resolveVaultPath) {
+            for (let i = 0; i < merged.length; i++) {
+              const v = merged[i];
+              if (v.storageType === 'fsa' && !v.path) {
+                try {
+                  const resolved = await window.electronAPI.resolveVaultPath(v);
+                  if (resolved) {
+                    merged[i] = { ...v, path: resolved };
+                  }
+                } catch {}
+              }
+            }
+          }
+
           set({ vaults: merged, isLoaded: true });
 
-          // Atualiza o localStorage com o resultado consolidado
+          // Atualiza o localStorage com o resultado consolidado e limpo do disco
           localStorage.setItem(VAULT_REGISTRY_KEY, JSON.stringify(merged));
 
           // Restaura activeVaultId se não houver um salvo localmente ou se estiver no cofre padrão
@@ -133,19 +201,10 @@ export const useVaultRegistryStore = create<VaultRegistryStore>((set) => ({
           if (diskData.activeVaultId && (!currentLocalActive || currentLocalActive === 'default-vault')) {
             localStorage.setItem('vault_active_id', diskData.activeVaultId);
           }
-
-          // Se o merge encontrou novos itens válidos em relação ao disco, atualiza o arquivo físico
-          const nonDefaultLocal = localVaults.filter(v => !v.isDefault);
-          if (nonDefaultLocal.length > 0 && merged.length > diskData.vaults.length) {
-            window.electronAPI.saveVaultsRegistry({
-              vaults: merged,
-              activeVaultId: diskData.activeVaultId || localStorage.getItem('vault_active_id') || undefined,
-            }).catch(() => {});
-          }
         } else if (localVaults.length > 0 && localVaults.some(v => !v.isDefault)) {
           // Salva no disco apenas se houver cofres reais criados pelo usuário
           window.electronAPI.saveVaultsRegistry({
-            vaults: localVaults,
+            vaults: localVaults.filter(isValidVault),
             activeVaultId: localStorage.getItem('vault_active_id') || undefined,
           }).catch(() => {});
         }
@@ -173,8 +232,9 @@ export const useVaultRegistryStore = create<VaultRegistryStore>((set) => ({
   removeVault: (vaultId: string) => {
     set((state) => {
       const next = state.vaults.filter(v => v.id !== vaultId);
-      persistVaultsToLocalStorage(next);
-      return { vaults: next };
+      const finalList = next.length > 0 ? next : [DEFAULT_VAULT];
+      persistVaultsToLocalStorage(finalList);
+      return { vaults: finalList };
     });
   },
 

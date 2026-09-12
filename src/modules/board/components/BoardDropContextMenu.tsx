@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { PendingArrowContext, BoardElementType, BoardElementPayload } from '../types';
-import { StickyNote, Type, Search, X } from 'lucide-react';
+import { StickyNote, Type, Database, Search, X } from 'lucide-react';
 
 interface BoardDropContextMenuProps {
   context: PendingArrowContext;
@@ -107,7 +107,18 @@ export const BoardDropContextMenu: React.FC<BoardDropContextMenuProps> = ({
           <span className="font-medium">Adicionar Texto</span>
         </button>
 
-        {/* Opção 3: Adicionar do Vault (Áudios, Imagens, Quadros, Notas) */}
+        {/* Opção 3: Base de Dados */}
+        <button
+          onClick={() => onSelectOption('database', { title: 'Nova Base de Dados' })}
+          className="flex items-center gap-2.5 p-2 rounded-xl text-xs text-neutral-200 hover:text-white hover:bg-neutral-800/60 transition-colors w-full text-left"
+        >
+          <div className="w-6 h-6 rounded-lg bg-[#52B1FF]/20 text-[#52B1FF] flex items-center justify-center">
+            <Database className="w-3.5 h-3.5" />
+          </div>
+          <span className="font-medium">Adicionar Base de Dados</span>
+        </button>
+
+        {/* Opção 4: Adicionar do Vault (Áudios, Imagens, Quadros, Notas, Bancos) */}
         <button
           onClick={() => {
             onOpenVaultSearchModal();

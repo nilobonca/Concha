@@ -1,4 +1,6 @@
-export type BoardElementType = 'note' | 'text' | 'audio' | 'image' | 'canvas-preview';
+import { DatabaseInstance } from '../database/types';
+
+export type BoardElementType = 'note' | 'text' | 'audio' | 'image' | 'canvas-preview' | 'database';
 
 export type HandlePosition = 'top' | 'right' | 'bottom' | 'left';
 
@@ -42,12 +44,20 @@ export interface CanvasPreviewData {
   previewInfo?: string;
 }
 
+export interface DatabaseElementData {
+  databasePath?: string;
+  databaseId?: string;
+  title?: string;
+  initialData?: DatabaseInstance;
+}
+
 export type BoardElementPayload =
   | Partial<NoteData>
   | Partial<TextData>
   | AudioData
   | ImageData
-  | CanvasPreviewData;
+  | CanvasPreviewData
+  | DatabaseElementData;
 
 export interface BoardElement {
   id: string;
@@ -58,7 +68,7 @@ export interface BoardElement {
   width: number;
   height: number;
   zIndex: number;
-  data: NoteData | TextData | AudioData | ImageData | CanvasPreviewData | Record<string, unknown>;
+  data: NoteData | TextData | AudioData | ImageData | CanvasPreviewData | DatabaseElementData | Record<string, unknown>;
 }
 
 export interface BoardConnection {

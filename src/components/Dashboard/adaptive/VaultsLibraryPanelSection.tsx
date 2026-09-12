@@ -196,8 +196,8 @@ export const VaultsLibraryPanelSection: React.FC<VaultsLibraryPanelSectionProps>
                     </div>
                   </div>
 
-                  {/* Remove Button on Hover (for non-selected/non-default vaults) */}
-                  {!isSelected && onRemoveVault && !vault.isDefault && (
+                  {/* Remove Button on Hover (for non-selected vaults, or default if other vaults exist) */}
+                  {!isSelected && onRemoveVault && (!vault.isDefault || vaults.length > 1) && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();

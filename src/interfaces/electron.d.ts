@@ -62,6 +62,13 @@ export interface ElectronAPI {
     }>;
     activeVaultId?: string;
   }) => Promise<boolean>;
+  resolveVaultPath?: (vault: {
+    id?: string;
+    name?: string;
+    folderName?: string;
+    path?: string;
+    storageType?: string;
+  }) => Promise<string | undefined>;
 
   // Spell Checker API
   setSpellCheckerConfig?: (enabled: boolean, languages: string[] | string) => Promise<boolean>;

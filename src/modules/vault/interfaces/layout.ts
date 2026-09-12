@@ -2,9 +2,9 @@ export interface VaultTab {
   path: string;
   title: string;
   isDirty?: boolean;
-  type?: 'markdown' | 'canvas' | 'audio' | 'image' | 'empty';
+  type?: 'markdown' | 'canvas' | 'audio' | 'image' | 'empty' | 'database';
   canvasId?: string;
-  fileType?: 'audio' | 'image' | 'note';
+  fileType?: 'audio' | 'image' | 'note' | 'database';
 }
 
 export type SplitDirection = 'horizontal' | 'vertical'; 

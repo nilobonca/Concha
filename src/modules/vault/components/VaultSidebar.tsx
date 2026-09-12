@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { FSAStorageProvider } from '../storage/FSAStorageProvider';
 import { InlineRenameInput } from './sidebar/InlineRenameInput';
+import { createDefaultDatabase } from '@/modules/database/utils/databaseDefaults';
 
 interface FolderInputRowProps {
   parentPath: string;
@@ -599,11 +600,36 @@ export const VaultSidebar: React.FC = () => {
     if (!trimmed) return;
 
     const isFolder = node.type === 'folder';
-    const isNote = node.fileType === 'note' || (!node.fileType && (node.name.endsWith('.md') || node.name.endsWith('.txt')));
+    const isDatabase =
+      node.fileType === 'database' ||
+      node.extension === 'database' ||
+      node.extension === 'db.json' ||
+      node.name.toLowerCase().endsWith('.db.json') ||
+      node.name.toLowerCase().endsWith('.database') ||
+      node.path.toLowerCase().endsWith('.db.json') ||
+      node.path.toLowerCase().endsWith('.database') ||
+      node.path.toLowerCase().endsWith('.db.json.md');
+    const isCanvas =
+      node.fileType === 'canvas' ||
+      node.extension === 'canvas' ||
+      node.name.toLowerCase().endsWith('.canvas') ||
+      node.path.toLowerCase().endsWith('.canvas');
+    const isNote =
+      !isDatabase && !isCanvas &&
+      (node.fileType === 'note' || (!node.fileType && (node.name.endsWith('.md') || node.name.endsWith('.txt'))));
 
     let finalFileName = trimmed;
     if (isFolder) {
       finalFileName = trimmed;
+    } else if (isDatabase) {
+      if (!finalFileName.toLowerCase().endsWith('.db.json') && !finalFileName.toLowerCase().endsWith('.database')) {
+        const ext = node.path.toLowerCase().endsWith('.database') ? 'database' : 'db.json';
+        finalFileName = `${finalFileName}.${ext}`;
+      }
+    } else if (isCanvas) {
+      if (!finalFileName.toLowerCase().endsWith('.canvas')) {
+        finalFileName = `${finalFileName}.canvas`;
+      }
     } else if (isNote) {
       const isTxt = node.path.toLowerCase().endsWith('.txt');
       const defaultExt = isTxt ? 'txt' : 'md';
@@ -1253,6 +1279,18 @@ export const VaultSidebar: React.FC = () => {
                   path: node.path,
                   name: node.name
                 }));
+              } else if (
+                node.fileType === 'database' ||
+                node.extension === 'database' ||
+                node.name.toLowerCase().endsWith('.database') ||
+                node.name.toLowerCase().endsWith('.db.json') ||
+                node.path.toLowerCase().endsWith('.database') ||
+                node.path.toLowerCase().endsWith('.db.json')
+              ) {
+                e.dataTransfer.setData('application/rpgsa-vault-database', JSON.stringify({
+                  path: node.path,
+                  name: node.name.replace(/\.(database|db\.json|db\.json\.md)$/i, '')
+                }));
               } else {
                 e.dataTransfer.setData('application/rpgsa-vault-note', JSON.stringify({
                   path: node.path,
@@ -1330,6 +1368,8 @@ export const VaultSidebar: React.FC = () => {
               <ImageIcon className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
             ) : node.fileType === 'canvas' || node.extension === 'canvas' || node.name.toLowerCase().endsWith('.canvas') ? (
               <FolderKanban className="w-3.5 h-3.5 text-[#1831D7] dark:text-[#7F95FF] shrink-0" />
+            ) : node.fileType === 'database' || node.extension === 'database' || node.extension === 'db.json' || node.name.toLowerCase().endsWith('.db.json') || node.name.toLowerCase().endsWith('.database') || node.name.toLowerCase().endsWith('.db.json.md') || node.path.toLowerCase().endsWith('.db.json') || node.path.toLowerCase().endsWith('.database') || node.path.toLowerCase().endsWith('.db.json.md') ? (
+              <Database className="w-3.5 h-3.5 text-[#52B1FF] dark:text-[#52B1FF] shrink-0" />
             ) : node.fileType === 'file' ? (
               <File className="w-3.5 h-3.5 text-amber-600/80 dark:text-amber-400/80 shrink-0" />
             ) : (
@@ -1345,10 +1385,12 @@ export const VaultSidebar: React.FC = () => {
                       ? node.name.replace(/\.(md|txt)$/i, '')
                       : (node.fileType === 'canvas' || node.extension === 'canvas' || node.name.toLowerCase().endsWith('.canvas'))
                         ? node.name.replace(/\.canvas$/i, '')
-                        : (() => {
-                            const lastDot = node.name.lastIndexOf('.');
-                            return lastDot > 0 ? node.name.slice(0, lastDot) : node.name;
-                          })()
+                        : (node.fileType === 'database' || node.extension === 'db.json' || node.name.toLowerCase().endsWith('.db.json') || node.name.toLowerCase().endsWith('.database') || node.name.toLowerCase().endsWith('.db.json.md'))
+                          ? node.name.replace(/\.(db\.json\.md|db\.json|database)$/i, '')
+                          : (() => {
+                              const lastDot = node.name.lastIndexOf('.');
+                              return lastDot > 0 ? node.name.slice(0, lastDot) : node.name;
+                            })()
                 }
                 isFolder={isFolder}
                 onSubmit={(newName) => handleRenameNodeSubmit(node, newName)}
@@ -1360,7 +1402,9 @@ export const VaultSidebar: React.FC = () => {
                   ? node.name.replace(/\.(md|txt)$/i, '')
                   : (node.fileType === 'canvas' || node.extension === 'canvas' || node.name.toLowerCase().endsWith('.canvas'))
                     ? node.name.replace(/\.canvas$/i, '')
-                    : node.name}
+                    : (node.fileType === 'database' || node.extension === 'db.json' || node.name.toLowerCase().endsWith('.db.json') || node.name.toLowerCase().endsWith('.database') || node.name.toLowerCase().endsWith('.db.json.md'))
+                      ? node.name.replace(/\.(db\.json\.md|db\.json|database)$/i, '')
+                      : node.name}
               </span>
             )}
           </div>
@@ -1595,6 +1639,17 @@ export const VaultSidebar: React.FC = () => {
           }
         },
         {
+          label: 'Nova Base de Dados',
+          icon: <Database size={16} className="text-[#52B1FF]" />,
+          onClick: async () => {
+            try {
+              await useVaultStore.getState().createDatabase('');
+            } catch (err: unknown) {
+              console.warn('Criação de database falhou:', err);
+            }
+          }
+        },
+        {
           label: 'Nova Pasta',
           icon: <FolderPlus size={16} className="text-[#7F95FF]" />,
           onClick: () => {
@@ -1788,6 +1843,17 @@ export const VaultSidebar: React.FC = () => {
           icon: <Music size={16} className="text-cyan-400" />,
           onClick: () => {
             handleCreateAudioCanvas(node.path);
+          }
+        },
+        {
+          label: 'Nova Base de Dados nesta pasta',
+          icon: <Database size={16} className="text-[#52B1FF]" />,
+          onClick: async () => {
+            try {
+              await useVaultStore.getState().createDatabase(node.path);
+            } catch (err: unknown) {
+              console.warn('Criação de database falhou:', err);
+            }
           }
         },
         {

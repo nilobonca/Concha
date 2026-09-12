@@ -136,6 +136,11 @@ export class IDBStorageProvider implements IVaultStorageProvider {
       req.onsuccess = () => {
         if (req.result) {
           resolve(req.result.content || '');
+        } else if (cleanPath.toLowerCase().endsWith('.db.json')) {
+          // Fallback para documentos que possam ter sido salvos com .md anexado
+          const altReq = store.get(this.buildDocId(`${cleanPath}.md`));
+          altReq.onsuccess = () => resolve(altReq.result?.content || '');
+          altReq.onerror = () => resolve('');
         } else {
           // Resolve com string vazia em vez de rejeitar com erro para não derrubar a aplicação
           resolve('');
@@ -150,7 +155,7 @@ export class IDBStorageProvider implements IVaultStorageProvider {
     const cleanPath = sanitizeVaultPath(filePath, false);
     const docId = this.buildDocId(cleanPath);
     const parts = cleanPath.split('/');
-    const title = parts.pop()?.replace(/\.(md|txt)$/i, '') || 'Sem título';
+    const title = parts.pop()?.replace(/\.(md|markdown|txt|canvas|database|db\.json\.md|db\.json|json)$/i, '') || 'Sem título';
     const folderPath = parts.join('/');
 
     return new Promise((resolve, reject) => {
@@ -432,7 +437,8 @@ export class IDBStorageProvider implements IVaultStorageProvider {
       try { clean = decodeURIComponent(clean); } catch {}
     }
     clean = clean.normalize('NFC');
-    const normalized = /\.(md|txt|canvas)$/i.test(clean) ? clean : `${clean}.md`;
+    const hasKnownExt = /\.(md|markdown|txt|canvas|database|db\.json|json)$/i.test(clean);
+    const normalized = hasKnownExt ? clean : `${clean}.md`;
     return `${this._vaultId}:${normalized}`;
   }
 
@@ -522,13 +528,19 @@ export class IDBStorageProvider implements IVaultStorageProvider {
     // Place docs in folders
     docs.forEach(d => {
       const isCanvas = d.path.toLowerCase().endsWith('.canvas');
+      const isDatabase =
+        d.path.toLowerCase().endsWith('.db.json') ||
+        d.path.toLowerCase().endsWith('.database') ||
+        d.path.toLowerCase().endsWith('.db.json.md');
       const fileNode: VaultNode = {
         id: d.path,
-        name: d.title,
+        name: isDatabase
+          ? d.title.replace(/\.(db\.json\.md|db\.json|database)$/i, '')
+          : d.title,
         path: d.path,
         type: 'file',
-        fileType: isCanvas ? 'canvas' : 'note',
-        extension: isCanvas ? 'canvas' : 'md',
+        fileType: isCanvas ? 'canvas' : isDatabase ? 'database' : 'note',
+        extension: isCanvas ? 'canvas' : isDatabase ? 'db.json' : 'md',
         updatedAt: d.updatedAt
       };
 

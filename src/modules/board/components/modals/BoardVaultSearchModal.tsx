@@ -2,17 +2,18 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useVaultStore } from '@/modules/vault/hooks/useVaultStore';
 import { useIDB } from '@/utils/indexedDB';
 import { AudioData, ImageData, CanvasPreviewData } from '../../types';
-import { Search, FileText, Music, Image as ImageIcon, FolderKanban, CornerDownLeft, Upload, Plus } from 'lucide-react';
+import { Search, FileText, Music, Image as ImageIcon, FolderKanban, CornerDownLeft, Upload, Plus, Database } from 'lucide-react';
 import { useSmoothHorizontalScroll } from '@/hooks/useSmoothHorizontalScroll';
 
-export type VaultSearchCategory = 'all' | 'notes' | 'audio' | 'image' | 'canvas';
+export type VaultSearchCategory = 'all' | 'notes' | 'database' | 'audio' | 'image' | 'canvas';
 
 export type UnifiedVaultItem = 
   | { type: 'note'; id: string; title: string; subtitle: string; path: string }
+  | { type: 'database'; id: string; title: string; subtitle: string; path: string }
   | { type: 'audio'; id: string; title: string; subtitle: string; audioId?: number; url?: string; path?: string }
   | { type: 'image'; id: string; title: string; subtitle: string; imageId?: number; src?: string; path?: string }
   | { type: 'canvas'; id: string; title: string; subtitle: string; projectId: string; canvasType: 'board' | 'audio' }
-  | { type: 'action'; id: string; title: string; actionType: 'upload-audio' | 'upload-image' | 'create-note' };
+  | { type: 'action'; id: string; title: string; actionType: 'upload-audio' | 'upload-image' | 'create-note' | 'create-database' };
 
 interface BoardVaultSearchModalProps {
   isOpen: boolean;
@@ -20,6 +21,7 @@ interface BoardVaultSearchModalProps {
   initialCategory?: VaultSearchCategory;
   onClose: () => void;
   onSelectNote: (note: { path: string; name: string }) => void;
+  onSelectDatabase?: (database: { path: string; name: string }) => void;
   onSelectAudio: (audioData: AudioData) => void;
   onSelectImage: (imageData: ImageData) => void;
   onSelectCanvas: (canvasData: CanvasPreviewData) => void;
@@ -31,6 +33,7 @@ export const BoardVaultSearchModal: React.FC<BoardVaultSearchModalProps> = ({
   initialCategory = 'all',
   onClose,
   onSelectNote,
+  onSelectDatabase,
   onSelectAudio,
   onSelectImage,
   onSelectCanvas,
@@ -66,12 +69,13 @@ export const BoardVaultSearchModal: React.FC<BoardVaultSearchModalProps> = ({
   const allItems = useMemo<UnifiedVaultItem[]>(() => {
     const items: UnifiedVaultItem[] = [];
 
-    // 1. Vault Files (Notes, Audios, Images)
+    // 1. Vault Files (Notes, Audios, Images, Databases)
     const vaultFiles = getAllFiles();
     vaultFiles.forEach((file) => {
       const ext = file.extension || file.name.split('.').pop()?.toLowerCase() || '';
       const isAudio = file.fileType === 'audio' || ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'webm', 'opus'].includes(ext);
       const isImage = file.fileType === 'image' || ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'bmp', 'avif'].includes(ext);
+      const isDatabase = file.fileType === 'database' || ext === 'database' || file.name.toLowerCase().endsWith('.db.json') || file.name.toLowerCase().endsWith('.db.json.md') || file.path.toLowerCase().endsWith('.database');
 
       if (isAudio && (category === 'all' || category === 'audio')) {
         items.push({
@@ -89,7 +93,15 @@ export const BoardVaultSearchModal: React.FC<BoardVaultSearchModalProps> = ({
           subtitle: file.folder ? `Imagem no Vault (${file.folder})` : 'Imagem no Vault',
           path: file.path,
         });
-      } else if (!isAudio && !isImage && (category === 'all' || category === 'notes')) {
+      } else if (isDatabase && (category === 'all' || category === 'database')) {
+        items.push({
+          type: 'database',
+          id: `database-${file.path}`,
+          title: file.name.replace(/\.(database|db\.json|db\.json\.md)$/i, ''),
+          subtitle: file.folder ? `Base de dados em ${file.folder}` : 'Base de Dados',
+          path: file.path,
+        });
+      } else if (!isAudio && !isImage && !isDatabase && (category === 'all' || category === 'notes')) {
         items.push({
           type: 'note',
           id: `note-${file.path}`,
@@ -174,6 +186,18 @@ export const BoardVaultSearchModal: React.FC<BoardVaultSearchModalProps> = ({
       }
     }
 
+    if (q && (category === 'all' || category === 'database')) {
+      const exactDbMatch = res.some((i) => i.type === 'database' && i.title.toLowerCase() === q);
+      if (!exactDbMatch) {
+        actionItems.push({
+          type: 'action',
+          id: 'action-create-database',
+          title: `Criar e vincular nova base de dados: "${query.trim()}"`,
+          actionType: 'create-database',
+        });
+      }
+    }
+
     if (category === 'all' || category === 'audio') {
       actionItems.push({
         type: 'action',
@@ -241,6 +265,9 @@ export const BoardVaultSearchModal: React.FC<BoardVaultSearchModalProps> = ({
         previewInfo: `ID: ${item.projectId.slice(0, 8)}...`,
       });
       onClose();
+    } else if (item.type === 'database') {
+      onSelectDatabase?.({ path: item.path, name: item.title });
+      onClose();
     } else if (item.type === 'action') {
       if (item.actionType === 'upload-audio') {
         audioInputRef.current?.click();
@@ -250,6 +277,18 @@ export const BoardVaultSearchModal: React.FC<BoardVaultSearchModalProps> = ({
         const newPath = await createFile('', query.trim());
         const cleanName = newPath.split('/').pop()?.replace(/\.(md|txt)$/i, '') || query.trim();
         onSelectNote({ path: newPath, name: cleanName });
+        onClose();
+      } else if (item.actionType === 'create-database') {
+        const dbName = query.trim() || 'Nova Base de Dados';
+        try {
+          const { createDefaultDatabase } = await import('@/modules/database/utils/databaseDefaults');
+          const defaultDb = createDefaultDatabase(dbName);
+          const newPath = await createFile('', `${dbName}.database`, JSON.stringify(defaultDb, null, 2), false);
+          const cleanName = newPath.split('/').pop()?.replace(/\.(database|db\.json|db\.json\.md)$/i, '') || dbName;
+          onSelectDatabase?.({ path: newPath, name: cleanName });
+        } catch (err) {
+          console.error('Falha ao criar base de dados:', err);
+        }
         onClose();
       }
     }
@@ -388,6 +427,7 @@ export const BoardVaultSearchModal: React.FC<BoardVaultSearchModalProps> = ({
             [
               { key: 'all', label: 'Todos' },
               { key: 'notes', label: 'Notas' },
+              { key: 'database', label: 'Bancos de Dados' },
               { key: 'audio', label: 'Áudios' },
               { key: 'image', label: 'Imagens' },
               { key: 'canvas', label: 'Quadros' },
@@ -428,7 +468,7 @@ export const BoardVaultSearchModal: React.FC<BoardVaultSearchModalProps> = ({
                   }`}
                 >
                   <div className="flex items-center gap-3 truncate">
-                    {item.actionType === 'create-note' ? (
+                    {item.actionType === 'create-note' || item.actionType === 'create-database' ? (
                       <Plus className="w-4 h-4 shrink-0" />
                     ) : (
                       <Upload className="w-4 h-4 shrink-0" />
@@ -440,7 +480,7 @@ export const BoardVaultSearchModal: React.FC<BoardVaultSearchModalProps> = ({
               );
             }
 
-            // Regular items (Note, Audio, Image, Canvas)
+            // Regular items (Note, Database, Audio, Image, Canvas)
             return (
               <div
                 key={item.id}
@@ -456,6 +496,11 @@ export const BoardVaultSearchModal: React.FC<BoardVaultSearchModalProps> = ({
                   {item.type === 'note' && (
                     <FileText
                       className={`w-4 h-4 shrink-0 ${isSelected ? 'text-white' : 'text-[#7F95FF]'}`}
+                    />
+                  )}
+                  {item.type === 'database' && (
+                    <Database
+                      className={`w-4 h-4 shrink-0 ${isSelected ? 'text-white' : 'text-[#52B1FF]'}`}
                     />
                   )}
                   {item.type === 'audio' && (

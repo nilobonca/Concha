@@ -51,7 +51,7 @@ export const VaultDeleteConfirmationModal: React.FC<VaultDeleteConfirmationModal
   const isFSA = vault.storageType === 'fsa';
   const displayLocation = vault.path || (
     isFSA 
-      ? (vault.folderName ? `D:\\RPG\\Campanhas\\${vault.folderName}` : 'Pasta Local no Computador')
+      ? (vault.folderName || vault.name || 'Pasta Local no Computador')
       : 'Armazenamento interno (IndexedDB)'
   );
 

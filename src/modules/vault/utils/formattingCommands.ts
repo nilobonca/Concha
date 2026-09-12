@@ -6,7 +6,7 @@ import {
   Quote, Minus, FileCode, Table as TableIcon,
   AlertCircle, AlertTriangle, Lightbulb,
   Bold, Italic, Strikethrough, Highlighter, Code,
-  Binary, Link2
+  Binary, Link2, Database as DatabaseIcon
 } from 'lucide-react';
 
 export interface FormattingCommand {
@@ -138,6 +138,21 @@ export const FORMATTING_COMMANDS: FormattingCommand[] = [
       } else {
         editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
       }
+    },
+  },
+  {
+    id: 'database-block',
+    title: 'Base de Dados',
+    description: 'Tabela, kanban e galeria com propriedades tipadas e visualizações',
+    category: 'blocks',
+    icon: DatabaseIcon,
+    keywords: ['database', 'banco', 'kanban', 'dados', 'db', 'tabela relacional', 'colecao'],
+    shortcut: '/db',
+    execute: (editor) => {
+      editor.chain().focus().insertContent({
+        type: 'databaseBlock',
+        attrs: { databaseId: `db_${Date.now()}` },
+      }).run();
     },
   },
   {

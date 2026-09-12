@@ -10,6 +10,7 @@ import {
   AudioData,
   ImageData,
   CanvasPreviewData,
+  DatabaseElementData,
   ViewportTransform,
   BoardElementPayload,
 } from '../types';
@@ -29,6 +30,8 @@ const DEFAULT_IMAGE_WIDTH = 260;
 const DEFAULT_IMAGE_HEIGHT = 200;
 const DEFAULT_PREVIEW_WIDTH = 260;
 const DEFAULT_PREVIEW_HEIGHT = 150;
+const DEFAULT_DATABASE_WIDTH = 640;
+const DEFAULT_DATABASE_HEIGHT = 440;
 
 export function useBoardCanvas(boardId: string, initialName?: string, folderPath?: string | null) {
   const { boardData, setBoardData, persistBoard, isLoading, flushSave } = useBoardStorage(boardId, initialName, folderPath);
@@ -224,6 +227,9 @@ export function useBoardCanvas(boardId: string, initialName?: string, folderPath
     } else if (sourceEl.type === 'canvas-preview') {
       const srcPreview = (sourceEl.data || {}) as CanvasPreviewData;
       newData = { ...srcPreview };
+    } else if (sourceEl.type === 'database') {
+      const srcDb = (sourceEl.data || {}) as DatabaseElementData;
+      newData = { ...srcDb };
     } else {
       newData = { ...(sourceEl.data || {}) };
     }
@@ -505,6 +511,23 @@ export function useBoardCanvas(boardId: string, initialName?: string, folderPath
     });
   }, [addElement]);
 
+  // Criar Base de Dados
+  const createDatabase = useCallback((dbData: DatabaseElementData, pos?: { x: number; y: number }) => {
+    const x = pos ? pos.x : (-viewportRef.current.x + 200) / viewportRef.current.k;
+    const y = pos ? pos.y : (-viewportRef.current.y + 150) / viewportRef.current.k;
+
+    return addElement({
+      id: uuidv4(),
+      type: 'database',
+      x,
+      y,
+      width: DEFAULT_DATABASE_WIDTH,
+      height: DEFAULT_DATABASE_HEIGHT,
+      zIndex: 1,
+      data: dbData,
+    });
+  }, [addElement]);
+
   // Criação contextual conectada a partir de soltura de seta no vazio!
   const createConnectedElement = useCallback(async (
     type: BoardElementType,
@@ -515,7 +538,7 @@ export function useBoardCanvas(boardId: string, initialName?: string, folderPath
 
     const { sourceId, sourceHandle, dropPos } = context;
 
-    let newEl: BoardElement;
+    let newEl: BoardElement | undefined;
     const spawnX = dropPos.x - 100;
     const spawnY = dropPos.y - 60;
 
@@ -552,7 +575,19 @@ export function useBoardCanvas(boardId: string, initialName?: string, folderPath
           { x: spawnX, y: spawnY }
         );
         break;
+      case 'database': {
+        const dbPayload = payload as DatabaseElementData | undefined;
+        newEl = createDatabase(
+          dbPayload || { title: 'Base de Dados' },
+          { x: spawnX, y: spawnY }
+        );
+        break;
+      }
+      default:
+        return;
     }
+
+    if (!newEl) return;
 
     // Calcular a melhor alça de conexão voltada para a origem
     const targetHandle = getFacingHandle(dropPos, newEl);
@@ -577,6 +612,7 @@ export function useBoardCanvas(boardId: string, initialName?: string, folderPath
     connectionsHook,
     createAudio,
     createCanvasPreview,
+    createDatabase,
     createImage,
     createNote,
     createText,
@@ -759,6 +795,7 @@ export function useBoardCanvas(boardId: string, initialName?: string, folderPath
     createAudio,
     createImage,
     createCanvasPreview,
+    createDatabase,
     createConnectedElement,
     connectionsHook,
     audioModalOpen,

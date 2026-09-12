@@ -1,11 +1,12 @@
 import React from 'react';
-import { StickyNote, Type, Search, HelpCircle, Undo2, Redo2 } from 'lucide-react';
+import { StickyNote, Type, Database, Search, HelpCircle, Undo2, Redo2 } from 'lucide-react';
 import { BoardElementType } from '../types';
 import clsx from 'clsx';
 
 interface BoardToolbarProps {
   onAddNote: () => void;
   onAddText: () => void;
+  onAddDatabase?: () => void;
   onOpenVaultSearch: () => void;
   onToolDragStart?: (tool: BoardElementType | 'vault-search') => void;
   onToolDragEnd?: () => void;
@@ -18,6 +19,7 @@ interface BoardToolbarProps {
 export const BoardToolbar: React.FC<BoardToolbarProps> = ({
   onAddNote,
   onAddText,
+  onAddDatabase,
   onOpenVaultSearch,
   onToolDragStart,
   onToolDragEnd,
@@ -84,6 +86,23 @@ export const BoardToolbar: React.FC<BoardToolbarProps> = ({
           </div>
           <span>Texto</span>
         </button>
+
+        {/* Adicionar Base de Dados */}
+        {onAddDatabase && (
+          <button
+            onClick={onAddDatabase}
+            draggable
+            onDragStart={(e) => handleDragStart(e, 'database')}
+            onDragEnd={() => onToolDragEnd?.()}
+            className="flex items-center gap-2 px-3.5 py-2 hover:bg-stone-100 dark:hover:bg-white/10 rounded-xl hover:text-stone-900 dark:hover:text-white transition-all hover:scale-105 active:scale-95 group text-xs font-medium cursor-grab active:cursor-grabbing"
+            title="Clique ou arraste para o canvas"
+          >
+            <div className="w-5 h-5 rounded-md bg-[#52B1FF]/20 text-[#52B1FF] flex items-center justify-center">
+              <Database className="w-3.5 h-3.5" />
+            </div>
+            <span>Base de Dados</span>
+          </button>
+        )}
 
         {/* Adicionar do Vault (Áudio, Imagem, Preview, Notas) */}
         <button

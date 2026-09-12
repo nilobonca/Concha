@@ -209,8 +209,8 @@ export const VaultOptionsGrid: React.FC<VaultOptionsGridProps> = ({
                     </div>
                   </div>
 
-                  {/* Actions (Delete only for non-active, non-default) */}
-                  {!isActive && !vault.isDefault && (
+                  {/* Actions (Delete for non-active vaults, or default if other vaults exist) */}
+                  {!isActive && (!vault.isDefault || vaults.length > 1) && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -218,7 +218,7 @@ export const VaultOptionsGrid: React.FC<VaultOptionsGridProps> = ({
                           onRemoveVault(vault.id);
                         }
                       }}
-                      className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-stone-400 hover:text-rose-600 transition-all"
+                      className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-stone-400 hover:text-rose-600 transition-all cursor-pointer"
                       title="Remover Vault do Registro"
                     >
                       <Trash2 size={14} />

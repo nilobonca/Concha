@@ -113,7 +113,7 @@ export const VaultContextMenu: React.FC<VaultContextMenuProps> = ({
     if (onCopyPath) {
       onCopyPath(vault);
     } else {
-      const pathStr = vault.path || (vault.folderName ? `D:\\RPG\\Campanhas\\${vault.folderName}` : vault.name);
+      const pathStr = vault.path || vault.folderName || vault.name;
       navigator.clipboard?.writeText(pathStr);
     }
     setCopied(true);

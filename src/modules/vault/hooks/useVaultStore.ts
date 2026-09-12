@@ -45,7 +45,7 @@ export interface FlatNoteItem {
   path: string;
   name: string;
   folder: string;
-  fileType?: 'note' | 'audio' | 'image' | 'file' | 'canvas';
+  fileType?: 'note' | 'audio' | 'image' | 'file' | 'canvas' | 'database';
   extension?: string;
   size?: number;
 }
@@ -150,6 +150,7 @@ interface VaultState {
 
   createFile: (folderPath?: string, name?: string, initialContent?: string, shouldOpen?: boolean) => Promise<string>;
   createBoardCanvas: (targetFolder?: string | null, customName?: string) => Promise<{ id: string; name: string; path: string }>;
+  createDatabase: (folderPath?: string, name?: string) => Promise<string>;
   saveMediaFile: (file: File, folderPath?: string) => Promise<string>;
   getFileUrl: (filePath: string) => Promise<string>;
   createFolder: (parentPath?: string, name?: string) => Promise<void>;
@@ -233,14 +234,15 @@ function flattenTree(nodes: VaultNode[], folder: string = ''): FlatNoteItem[] {
       const ext = node.extension || node.name.split('.').pop()?.toLowerCase() || '';
       const isAudio = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'webm', 'opus'].includes(ext);
       const isImage = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'bmp', 'avif'].includes(ext);
-      const fileType = node.fileType || (isAudio ? 'audio' : isImage ? 'image' : 'note');
+      const isDatabase = node.fileType === 'database' || ext === 'database' || node.path.toLowerCase().endsWith('.db.json') || node.path.toLowerCase().endsWith('.database') || node.path.toLowerCase().endsWith('.db.json.md');
+      const fileType = node.fileType || (isAudio ? 'audio' : isImage ? 'image' : isDatabase ? 'database' : 'note');
 
       result.push({
         path: node.path,
         name: node.name,
         folder,
         fileType,
-        extension: ext,
+        extension: isDatabase ? 'db.json' : ext,
         size: node.size
       });
     } else if (node.type === 'folder' && node.children) {
@@ -936,6 +938,30 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       return;
     }
 
+    const isDatabase =
+      ext === 'database' ||
+      path.toLowerCase().endsWith('.db.json') ||
+      path.toLowerCase().endsWith('.database') ||
+      path.toLowerCase().endsWith('.db.json.md');
+    if (isDatabase) {
+      const { layout, activePaneId } = get();
+      const targetId = targetPaneId || activePaneId;
+      const rawTitle = path.split('/').pop() || 'Base de Dados';
+      const title = rawTitle.replace(/\.(db\.json\.md|db\.json|database)$/i, '');
+      const tab: VaultTab = { path, title, type: 'database', fileType: 'database' };
+      const updatedLayout = insertTabInPane(layout, targetId, tab, undefined, true);
+      saveLayoutToStorage(updatedLayout, get().vaultId);
+      const targetPane = findPaneLeaf(updatedLayout, targetId);
+      set({
+        layout: updatedLayout,
+        activePaneId: targetId,
+        activePath: path,
+        tabs: targetPane?.tabs || [tab],
+        isEditing: false,
+      });
+      return;
+    }
+
     // Salva o documento atual se estiver sujo antes de trocar de nota
     const currentActivePath = get().activePath;
     if (currentActivePath && !currentActivePath.startsWith('canvas:') && !currentActivePath.startsWith('new-tab:')) {
@@ -1404,9 +1430,24 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       }
     }
 
-    const baseName = finalName.replace(/\.(md|txt)$/i, '');
-    const cleanBaseName = sanitizeVaultFileName(baseName, false) || 'Nova nota';
-    const fileName = `${cleanBaseName}.md`;
+    let fileName: string;
+    if (finalName.toLowerCase().endsWith('.db.json')) {
+      const raw = finalName.slice(0, -8);
+      const clean = sanitizeVaultFileName(raw, false) || 'Nova Base de Dados';
+      fileName = `${clean}.db.json`;
+    } else if (finalName.toLowerCase().endsWith('.database')) {
+      const raw = finalName.slice(0, -9);
+      const clean = sanitizeVaultFileName(raw, false) || 'Nova Base de Dados';
+      fileName = `${clean}.database`;
+    } else if (finalName.toLowerCase().endsWith('.canvas')) {
+      const raw = finalName.slice(0, -7);
+      const clean = sanitizeVaultFileName(raw, false) || 'Novo Canvas';
+      fileName = `${clean}.canvas`;
+    } else {
+      const baseName = finalName.replace(/\.(md|txt)$/i, '');
+      const cleanBaseName = sanitizeVaultFileName(baseName, false) || 'Nova nota';
+      fileName = `${cleanBaseName}.md`;
+    }
     const fullPath = cleanFolder ? `${cleanFolder}/${fileName}` : fileName;
 
     const contentToSave = (initialContent !== undefined)
@@ -1537,6 +1578,37 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     return { id: newId, name: cleanBaseName, path: fullPath || `${cleanBaseName}.canvas` };
   },
 
+  createDatabase: async (folderPath: string = '', rawName?: string) => {
+    const { createDefaultDatabase } = await import('@/modules/database/utils/databaseDefaults');
+    let finalTitle = rawName?.trim() || '';
+    if (!finalTitle) {
+      const allFiles = get().getAllFiles();
+      const cleanFolder = folderPath ? sanitizeVaultPath(folderPath, true) : '';
+      const prefix = cleanFolder ? `${cleanFolder}/` : '';
+      // Normaliza caminhos existentes para capturar tanto .db.json quanto legados .db.json.md
+      const existingPaths = new Set(
+        allFiles.flatMap(f => [
+          f.path.toLowerCase(),
+          f.path.toLowerCase().replace(/\.md$/, ''),
+        ])
+      );
+      const defaultBase = 'Nova Base de Dados';
+      const candidate = `${prefix}${defaultBase}.db.json`.toLowerCase();
+      if (!existingPaths.has(candidate)) {
+        finalTitle = defaultBase;
+      } else {
+        let counter = 1;
+        while (existingPaths.has(`${prefix}${defaultBase} ${counter}.db.json`.toLowerCase())) {
+          counter++;
+        }
+        finalTitle = `${defaultBase} ${counter}`;
+      }
+    }
+    const defaultDb = createDefaultDatabase(finalTitle);
+    const fileName = finalTitle.toLowerCase().endsWith('.db.json') ? finalTitle : `${finalTitle}.db.json`;
+    return await get().createFile(folderPath, fileName, JSON.stringify(defaultDb, null, 2), true);
+  },
+
   saveMediaFile: async (file: File, folderPath: string = '') => {
     const { provider } = get();
     if (!provider) throw new Error('Storage não inicializado');
@@ -1626,7 +1698,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
         updatedLayout = updatePaneInTree(updatedLayout, pane.id, (p) => {
           const nextTabs = p.tabs.map(t => {
             if (t.path === oldPath) {
-              const newTitle = actualNewPath.split('/').pop()?.replace(/\.(md|txt)$/, '') || 'Sem título';
+              const newTitle = actualNewPath.split('/').pop()?.replace(/\.(db\.json\.md|db\.json|database|md|txt)$/i, '') || 'Sem título';
               return { ...t, path: actualNewPath, title: newTitle };
             }
             if (isFolder && t.path.startsWith(`${oldPath}/`)) {

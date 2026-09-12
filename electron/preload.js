@@ -60,6 +60,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Vaults Registry Persistence API
   loadVaultsRegistry: () => ipcRenderer.invoke('load-vaults-registry'),
   saveVaultsRegistry: (data) => ipcRenderer.invoke('save-vaults-registry', data),
+  resolveVaultPath: (vault) => ipcRenderer.invoke('resolve-vault-path', vault),
 
   // Spell Checker API
   setSpellCheckerConfig: (enabled, languages) => ipcRenderer.invoke('set-spellchecker-config', { enabled, languages }),

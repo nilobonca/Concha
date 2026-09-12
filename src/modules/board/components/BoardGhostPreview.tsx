@@ -1,6 +1,6 @@
 import React from 'react';
 import { BoardElementType } from '../types';
-import { StickyNote, Type, Music, Image as ImageIcon, FolderKanban, Search } from 'lucide-react';
+import { StickyNote, Type, Music, Image as ImageIcon, FolderKanban, Search, Database } from 'lucide-react';
 
 interface BoardGhostPreviewProps {
   toolType: BoardElementType | 'vault-search';
@@ -181,6 +181,42 @@ export const BoardGhostPreview: React.FC<BoardGhostPreviewProps> = ({
             </div>
             <div className="text-[10px] text-emerald-400 font-mono">
               [ Vincular Quadro ]
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    case 'database': {
+      const width = 360;
+      const height = 220;
+      const left = worldPos.x - width / 2;
+      const top = worldPos.y - height / 2;
+
+      return (
+        <div
+          style={{
+            position: 'absolute',
+            left,
+            top,
+            width,
+            height,
+            zIndex: 9999,
+          }}
+          className="pointer-events-none select-none transition-transform duration-75 ease-out"
+        >
+          <div className="w-full h-full rounded-2xl border-2 border-dashed border-[#52B1FF] bg-[#17192A]/90 shadow-2xl p-4 flex flex-col justify-between text-[#F4F0E6] ring-4 ring-[#52B1FF]/20">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-[#52B1FF]/20 flex items-center justify-center text-[#52B1FF]">
+                <Database className="w-4 h-4" />
+              </div>
+              <div>
+                <p className="text-xs font-bold">Base de Dados</p>
+                <p className="text-[10px] text-neutral-400">Solte para posicionar a base de dados</p>
+              </div>
+            </div>
+            <div className="text-[10px] text-[#52B1FF] font-mono flex items-center gap-1">
+              <span>[ Inserir Database ]</span>
             </div>
           </div>
         </div>

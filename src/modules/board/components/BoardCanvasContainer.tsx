@@ -19,6 +19,7 @@ interface BoardCanvasContainerProps {
   onSelectionBoxEnd?: (box: MarqueeBox, isShift: boolean) => void;
   onDropNote?: (note: { path: string; name: string }, worldPos: { x: number; y: number }) => void;
   onDropVaultMedia?: (media: { path: string; name: string; fileType: 'audio' | 'image' }, worldPos: { x: number; y: number }) => void;
+  onDropDatabase?: (database: { path: string; name: string }, worldPos: { x: number; y: number }) => void;
   onDropTool?: (toolType: BoardElementType | 'vault-search', worldPos: { x: number; y: number }) => void;
   draggingTool?: BoardElementType | 'vault-search' | null;
   onCanvasContextMenu?: (e: React.MouseEvent, worldPos: { x: number; y: number }, screenPos: { x: number; y: number }) => void;
@@ -38,6 +39,7 @@ export const BoardCanvasContainer: React.FC<BoardCanvasContainerProps> = ({
   onSelectionBoxEnd,
   onDropNote,
   onDropVaultMedia,
+  onDropDatabase,
   onDropTool,
   draggingTool,
   onCanvasContextMenu,
@@ -73,13 +75,12 @@ export const BoardCanvasContainer: React.FC<BoardCanvasContainerProps> = ({
     if (!container) return;
 
     const handleWheel = (e: WheelEvent) => {
-      e.preventDefault();
-
       const rect = container.getBoundingClientRect();
       const mouseScreenX = e.clientX - rect.left;
       const mouseScreenY = e.clientY - rect.top;
 
       if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
         // Zoom focalizado na posição do mouse
         const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
         setViewport(prev => {
@@ -89,6 +90,14 @@ export const BoardCanvasContainer: React.FC<BoardCanvasContainerProps> = ({
           return { x: newX, y: newY, k: newK };
         });
       } else {
+        const target = e.target as HTMLElement;
+        const isScrollableContent = target && target.closest('.prevent-canvas-pan, .custom-scrollbar, [data-scrollable="true"]');
+        if (isScrollableContent) {
+          // Permite rolagem nativa de elementos internos como tabelas de bancos de dados
+          return;
+        }
+
+        e.preventDefault();
         // Pan comum com scroll
         setViewport(prev => ({
           ...prev,
@@ -451,13 +460,14 @@ export const BoardCanvasContainer: React.FC<BoardCanvasContainerProps> = ({
         const hasVaultNote = e.dataTransfer.types.includes('application/rpgsa-vault-note');
         const hasVaultAudio = e.dataTransfer.types.includes('application/rpgsa-vault-audio');
         const hasVaultImage = e.dataTransfer.types.includes('application/rpgsa-vault-image');
+        const hasVaultDatabase = e.dataTransfer.types.includes('application/rpgsa-vault-database');
         const hasBoardTool = e.dataTransfer.types.includes('application/rpgsa-board-tool');
 
-        if (hasVaultNote || hasVaultAudio || hasVaultImage || hasBoardTool || draggingTool) {
+        if (hasVaultNote || hasVaultAudio || hasVaultImage || hasVaultDatabase || hasBoardTool || draggingTool) {
           e.preventDefault();
           e.dataTransfer.dropEffect = 'copy';
 
-          if (hasVaultNote || hasVaultAudio || hasVaultImage) {
+          if (hasVaultNote || hasVaultAudio || hasVaultImage || hasVaultDatabase) {
             setIsDraggingVaultNote(true);
           }
 
@@ -507,6 +517,18 @@ export const BoardCanvasContainer: React.FC<BoardCanvasContainerProps> = ({
             onDropVaultMedia({ ...imageData, fileType: 'image' }, worldPos);
           } catch (err) {
             console.error('Failed to parse dropped vault image:', err);
+          }
+          return;
+        }
+
+        const rawDatabase = e.dataTransfer.getData('application/rpgsa-vault-database');
+        if (rawDatabase && onDropDatabase) {
+          try {
+            const databaseData = JSON.parse(rawDatabase);
+            const worldPos = screenToWorld(e.clientX, e.clientY);
+            onDropDatabase(databaseData, worldPos);
+          } catch (err) {
+            console.error('Failed to parse dropped vault database:', err);
           }
           return;
         }

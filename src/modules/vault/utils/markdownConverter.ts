@@ -74,6 +74,21 @@ turndown.addRule('mermaid', {
   }
 });
 
+// Database Block: <div data-type="database-block"> -> preserve HTML block
+turndown.addRule('databaseBlock', {
+  filter: (node) => {
+    return node.nodeName === 'DIV' && node.getAttribute('data-type') === 'database-block';
+  },
+  replacement: (_content, node) => {
+    const el = node as HTMLElement;
+    const dbId = el.getAttribute('data-database-id') || '';
+    const dbPath = el.getAttribute('data-database-path') || '';
+    const dbRaw = el.getAttribute('data-database-raw') || '';
+    return `\n\n<div data-type="database-block" data-database-id="${dbId}" data-database-path="${dbPath}" data-database-raw="${dbRaw}"></div>\n\n`;
+  }
+});
+
+
 // Callout block: <div data-type="callout"> -> > [!TYPE] Title\n> Content
 turndown.addRule('callout', {
   filter: (node) => {
