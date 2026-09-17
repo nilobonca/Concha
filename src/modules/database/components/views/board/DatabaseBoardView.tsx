@@ -12,10 +12,12 @@ export interface DatabaseBoardViewProps {
   groupKeys: string[];
   properties: PropertyDefinition[];
   viewConfig: DatabaseViewConfig;
+  databasePath?: string;
   onUpdateProperty: (rowId: string, propertyId: string, value: any) => void;
   onAddNewRow: (initialValues?: Partial<DatabaseRow>) => void;
   onOpenPeek?: (rowId: string) => void;
   isInline?: boolean;
+  onContextMenu?: (e: React.MouseEvent, row: DatabaseRow) => void;
 }
 
 export const DatabaseBoardView: React.FC<DatabaseBoardViewProps> = ({
@@ -23,10 +25,12 @@ export const DatabaseBoardView: React.FC<DatabaseBoardViewProps> = ({
   groupKeys,
   properties,
   viewConfig,
+  databasePath,
   onUpdateProperty,
   onAddNewRow,
   onOpenPeek,
   isInline = false,
+  onContextMenu,
 }) => {
   // Determine grouping property
   const groupByProp =
@@ -97,10 +101,12 @@ export const DatabaseBoardView: React.FC<DatabaseBoardViewProps> = ({
               visiblePropertyIds={viewConfig.visiblePropertyIds}
               coverPropertyId={viewConfig.coverPropertyId}
               cardSize={viewConfig.cardSize}
+              databasePath={databasePath}
               onOpenPeek={onOpenPeek}
               onUpdateProperty={onUpdateProperty}
               onAddCardToGroup={handleAddCardToGroup}
               onDropCardInGroup={handleDropCardInGroup}
+              onContextMenu={onContextMenu}
             />
           );
         })}

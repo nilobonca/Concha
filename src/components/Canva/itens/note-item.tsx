@@ -237,12 +237,12 @@ export default function NoteItem({
         const newPath = parts.join('/');
 
         try {
-          await useVaultStore.getState().renameNode(note.vaultPath, newPath, false);
+          const actualNewPath = await useVaultStore.getState().renameNode(note.vaultPath, newPath, false);
 
           onUpdate({
             ...note,
             title: cleanTitle,
-            vaultPath: newPath,
+            vaultPath: actualNewPath || newPath,
           });
           return;
         } catch (err) {
@@ -300,7 +300,7 @@ export default function NoteItem({
           onUpdate({
             ...note,
             vaultPath: newPath,
-            title: newTitle,
+            title: note.title || newTitle,
           });
         }
       }

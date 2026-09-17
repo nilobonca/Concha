@@ -411,10 +411,6 @@ export function useBoardCanvas(boardId: string, initialName?: string, folderPath
           await vaultStore.initializeStorage();
         }
         targetFilePath = await useVaultStore.getState().createFile('', initialTitle || '', initialContent || '', false);
-        if (targetFilePath) {
-          const fileName = targetFilePath.split('/').pop()?.replace(/\.md$/, '');
-          if (fileName) title = fileName;
-        }
       } catch (err) {
         console.warn('Falha ao criar nota no Vault a partir do Board:', err);
       }
@@ -769,6 +765,30 @@ export function useBoardCanvas(boardId: string, initialName?: string, folderPath
       window.removeEventListener('canvas_renamed', handleCanvasRenamed);
     };
   }, [boardId, persistBoard]);
+
+  // Observa adição externa de elemento do Vault ao board (ex: via menu contextual da barra lateral)
+  useEffect(() => {
+    const handleAddExternalElement = (e: Event) => {
+      const customEvent = e as CustomEvent<{
+        type: 'note' | 'database';
+        path: string;
+        name: string;
+        content?: string;
+      }>;
+      if (!customEvent.detail) return;
+      const { type, path, name, content } = customEvent.detail;
+      if (type === 'database') {
+        createDatabase({ databasePath: path, title: name });
+      } else {
+        createNote(undefined, '#fef08a', name, content, path);
+      }
+    };
+
+    window.addEventListener('add_vault_item_to_board', handleAddExternalElement);
+    return () => {
+      window.removeEventListener('add_vault_item_to_board', handleAddExternalElement);
+    };
+  }, [createDatabase, createNote]);
 
   return {
     boardData,

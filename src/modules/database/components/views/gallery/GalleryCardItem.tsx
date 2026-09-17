@@ -2,6 +2,7 @@ import React from 'react';
 import { DatabaseRow, PropertyDefinition, CardSize, SELECT_OPTION_COLOR_MAP } from '../../../types';
 import { formatPropertyValue } from '../../../utils/databaseCalculations';
 import { Image as ImageIcon } from 'lucide-react';
+import { formatDatabaseRowPath } from '@/modules/vault/utils/databaseNodeUtils';
 
 export interface GalleryCardItemProps {
   row: DatabaseRow;
@@ -10,8 +11,10 @@ export interface GalleryCardItemProps {
   coverPropertyId?: string;
   cardSize?: CardSize;
   fitImage?: boolean;
+  databasePath?: string;
   onOpenPeek?: (rowId: string) => void;
-  onUpdateProperty: (rowId: string, propertyId: string, value: any) => void;
+  onUpdateProperty?: (rowId: string, propertyId: string, value: any) => void;
+  onContextMenu?: (e: React.MouseEvent, row: DatabaseRow) => void;
 }
 
 export const GalleryCardItem: React.FC<GalleryCardItemProps> = ({
@@ -21,7 +24,9 @@ export const GalleryCardItem: React.FC<GalleryCardItemProps> = ({
   coverPropertyId,
   cardSize = 'medium',
   fitImage = false,
+  databasePath,
   onOpenPeek,
+  onContextMenu,
 }) => {
   // Determine cover preview
   let coverSrc = row.coverImage;
@@ -41,9 +46,33 @@ export const GalleryCardItem: React.FC<GalleryCardItemProps> = ({
   const coverHeight =
     cardSize === 'small' ? 'h-28' : cardSize === 'large' ? 'h-52' : 'h-40';
 
+  const handleDragStart = (e: React.DragEvent) => {
+    if (databasePath) {
+      const rowPath = formatDatabaseRowPath(databasePath, row.id);
+      e.dataTransfer.setData('text/plain', rowPath);
+      e.dataTransfer.setData(
+        'application/rpgsa-vault-note',
+        JSON.stringify({
+          path: rowPath,
+          name: row.title || 'Nota sem título',
+          isDatabaseRow: true,
+          dbPath: databasePath,
+          rowId: row.id,
+        })
+      );
+    }
+  };
+
   return (
     <div
+      draggable={Boolean(databasePath)}
+      onDragStart={handleDragStart}
       onClick={() => onOpenPeek?.(row.id)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onContextMenu?.(e, row);
+      }}
       className="group flex flex-col bg-white dark:bg-[#1E2238] rounded-2xl border border-stone-200 dark:border-white/10 hover:border-[#52B1FF] dark:hover:border-[#52B1FF] shadow-xs hover:shadow-lg transition-all cursor-pointer overflow-hidden select-none"
     >
       {/* Cover Image or Aesthetic Fallback */}

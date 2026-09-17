@@ -3,6 +3,7 @@ import { Send, Volume2, VolumeX, X, MessageSquare, Dices, Trash2 } from 'lucide-
 import { ChatMessage } from '@/interfaces/chat';
 import { formatTimestamp } from '@/utils/time';
 import { DiceTray } from '@/components/Dice/DiceTray';
+import { useClickOutside } from '@/hooks/useClickOutside';
 
 interface SessionChatProps {
   messages: ChatMessage[];
@@ -35,7 +36,14 @@ export const SessionChat: React.FC<SessionChatProps> = ({
 }) => {
   const [text, setText] = useState('');
   const chatListRef = useRef<HTMLDivElement>(null);
+  const diceMenuContainerRef = useRef<HTMLDivElement>(null);
   const [showDiceMenu, setShowDiceMenu] = useState(false);
+
+  useClickOutside({
+    ref: diceMenuContainerRef,
+    onClose: () => setShowDiceMenu(false),
+    enabled: showDiceMenu,
+  });
 
   const scrollToBottom = () => {
     if (chatListRef.current) {
@@ -150,7 +158,7 @@ export const SessionChat: React.FC<SessionChatProps> = ({
       </div>
 
       {/* Input */}
-      <div className="p-3 bg-neutral-950 border-t border-neutral-800 relative">
+      <div ref={diceMenuContainerRef} className="p-3 bg-neutral-950 border-t border-neutral-800 relative">
         {showDiceMenu && (
           <div className="absolute bottom-[100%] right-0 mb-2">
             <DiceTray 

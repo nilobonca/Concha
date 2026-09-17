@@ -15,13 +15,16 @@
     ".next/**/*",
     "public/**/*",
     "package.json",
+    "next.config.js",
     "!src/**/*",
     "!**/*.ts",
     "!**/*.tsx",
     "!**/*.map",
-    "!**/android/build/**",
-    "!**/android/src/**",
-    "!**/ios/**"
+    "!android/**",
+    "!ios/**",
+    "!**/android/**",
+    "!**/ios/**",
+    "!**/node_modules/@capacitor/**"
   ],
   "win": {
     "target": [
@@ -34,7 +37,8 @@
         "arch": ["x64"]
       }
     ],
-    "icon": "public/favicon.ico"
+    "icon": "public/favicon.ico",
+    "executableName": "Concha"
   },
   "nsis": {
     "artifactName": "${productName}-Setup-${version}.${ext}",
@@ -43,6 +47,7 @@
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
     "shortcutName": "Concha",
-    "deleteAppDataOnUninstall": false
+    "deleteAppDataOnUninstall": false,
+    "warningsAsErrors": false
   }
 }

@@ -80,7 +80,7 @@ export const BoardDropContextMenu: React.FC<BoardDropContextMenuProps> = ({
             <div className="w-6 h-6 rounded-lg bg-yellow-500/20 text-yellow-400 flex items-center justify-center">
               <StickyNote className="w-3.5 h-3.5" />
             </div>
-            <span className="font-medium">Adicionar Nota</span>
+            <span className="font-normal">Adicionar Nota</span>
           </button>
           {/* Cores rápidas */}
           <div className="flex gap-1.5 mt-1.5 pl-8.5">
@@ -104,7 +104,7 @@ export const BoardDropContextMenu: React.FC<BoardDropContextMenuProps> = ({
           <div className="w-6 h-6 rounded-lg bg-[#1831D7]/20 text-[#7F95FF] flex items-center justify-center">
             <Type className="w-3.5 h-3.5" />
           </div>
-          <span className="font-medium">Adicionar Texto</span>
+          <span className="font-normal">Adicionar Texto</span>
         </button>
 
         {/* Opção 3: Base de Dados */}
@@ -115,7 +115,7 @@ export const BoardDropContextMenu: React.FC<BoardDropContextMenuProps> = ({
           <div className="w-6 h-6 rounded-lg bg-[#52B1FF]/20 text-[#52B1FF] flex items-center justify-center">
             <Database className="w-3.5 h-3.5" />
           </div>
-          <span className="font-medium">Adicionar Base de Dados</span>
+          <span className="font-normal">Adicionar Base de Dados</span>
         </button>
 
         {/* Opção 4: Adicionar do Vault (Áudios, Imagens, Quadros, Notas, Bancos) */}
@@ -129,7 +129,7 @@ export const BoardDropContextMenu: React.FC<BoardDropContextMenuProps> = ({
           <div className="w-6 h-6 rounded-lg bg-[#1831D7]/20 text-[#7F95FF] flex items-center justify-center">
             <Search className="w-3.5 h-3.5" />
           </div>
-          <span className="font-medium">Adicionar do Vault...</span>
+          <span className="font-normal">Adicionar do Vault...</span>
         </button>
       </div>
     </div>

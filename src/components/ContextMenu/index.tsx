@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
 import { ChevronRight, Search } from 'lucide-react';
+import { useClickOutside } from '@/hooks/useClickOutside';
 
 interface ContextMenuOption {
     label: string;
@@ -72,29 +73,11 @@ export default function ContextMenu({ x, y, onClose, options }: ContextMenuProps
         }
     }, [x, y]);
 
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent | TouchEvent) => {
-            if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-                onClose();
-            }
-        };
-
-        const handleEscape = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') {
-                onClose();
-            }
-        };
-
-        document.addEventListener('mousedown', handleClickOutside);
-        document.addEventListener('touchstart', handleClickOutside);
-        document.addEventListener('keydown', handleEscape);
-
-        return () => {
-            document.removeEventListener('mousedown', handleClickOutside);
-            document.removeEventListener('touchstart', handleClickOutside);
-            document.removeEventListener('keydown', handleEscape);
-        };
-    }, [onClose]);
+    useClickOutside({
+        ref: menuRef,
+        onClose,
+        enabled: true,
+    });
 
     // Reset search when submenu changes
     useEffect(() => {
@@ -118,7 +101,7 @@ export default function ContextMenu({ x, y, onClose, options }: ContextMenuProps
     return ReactDOM.createPortal(
         <div
             ref={menuRef}
-            className="fixed bg-white/70 dark:bg-neutral-900/70 backdrop-blur-xl shadow-[0_8px_32px_0_rgba(31,38,135,0.15)] dark:shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] rounded-xl border border-white/40 dark:border-white/10 py-1.5 min-w-[200px] z-[9999] animate-in fade-in zoom-in-95 duration-100"
+            className="fixed bg-white/70 dark:bg-neutral-900/70 backdrop-blur-xl shadow-[0_8px_32px_0_rgba(31,38,135,0.15)] dark:shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] rounded-lg border border-white/40 dark:border-white/10 py-1.5 min-w-[200px] z-[9999] animate-in fade-in zoom-in-95 duration-100"
             style={{
                 left: `${position.x}px`,
                 top: `${position.y}px`,
@@ -153,7 +136,7 @@ export default function ContextMenu({ x, y, onClose, options }: ContextMenuProps
                         >
                             <div className="flex items-center gap-3 relative z-10">
                                 {option.icon && <span className="text-lg md:text-base flex items-center justify-center text-gray-500 dark:text-gray-400 group-hover:text-gray-800 dark:group-hover:text-white transition-colors">{option.icon}</span>}
-                                <span className="font-medium tracking-wide">{option.label}</span>
+                                <span className="font-normal tracking-wide">{option.label}</span>
                             </div>
                             {option.subMenu && <ChevronRight size={16} />}
                         </button>
@@ -162,7 +145,7 @@ export default function ContextMenu({ x, y, onClose, options }: ContextMenuProps
                     {/* Submenu */}
                     {option.subMenu && activeSubMenuIndex === index && (
                         <div
-                            className={`absolute top-0 ${openSubMenuToLeft ? 'right-full mr-2' : 'left-full ml-2'} bg-white/70 dark:bg-neutral-900/70 backdrop-blur-xl shadow-[0_8px_32px_0_rgba(31,38,135,0.15)] dark:shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] rounded-xl border border-white/40 dark:border-white/10 py-1.5 min-w-[200px] max-h-[300px] overflow-y-auto flex flex-col animate-in fade-in zoom-in-95 duration-150`}
+                            className={`absolute top-0 ${openSubMenuToLeft ? 'right-full mr-2' : 'left-full ml-2'} bg-white/70 dark:bg-neutral-900/70 backdrop-blur-xl shadow-[0_8px_32px_0_rgba(31,38,135,0.15)] dark:shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] rounded-lg border border-white/40 dark:border-white/10 py-1.5 min-w-[200px] max-h-[300px] overflow-y-auto flex flex-col animate-in fade-in zoom-in-95 duration-150`}
                         >
                             {option.searchable && (
                                 <div className="p-2 sticky top-0 bg-white/80 dark:bg-neutral-900/80 backdrop-blur-md z-10 border-b border-gray-200/50 dark:border-white/10">
@@ -235,7 +218,7 @@ export default function ContextMenu({ x, y, onClose, options }: ContextMenuProps
                                                 style={{ width: 'calc(100% - 8px)' }}
                                             >
                                                 {subOption.icon && <span className="text-lg md:text-base flex items-center justify-center text-gray-500 dark:text-gray-400 group-hover:text-gray-800 dark:group-hover:text-white transition-colors">{subOption.icon}</span>}
-                                                <span className="font-medium tracking-wide truncate relative z-10">{subOption.label}</span>
+                                                <span className="font-normal tracking-wide truncate relative z-10">{subOption.label}</span>
                                             </button>
                                         )}
                                     </div>

@@ -115,7 +115,7 @@ export const useCanvasCreators = ({
       console.warn('Falha ao criar nota no Vault automaticamente:', err);
     }
 
-    const title = vaultPath ? vaultPath.split('/').pop()?.replace(/\.(md|txt)$/i, '') : 'Nova Nota';
+    const title = 'Nova Nota';
 
     const newNote: ActiveNote = {
       id: uuidv4(),

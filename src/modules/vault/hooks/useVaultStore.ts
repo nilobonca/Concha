@@ -13,6 +13,7 @@ import { useVaultRegistryStore, RegisteredVault } from './useVaultRegistryStore'
 import Fuse from 'fuse.js';
 import { markdownToHtml, htmlToMarkdown } from '../utils/markdownConverter';
 import { parseFrontmatter, stringifyFrontmatter } from '../utils/frontmatterUtils';
+import { parseDatabaseRowPath, parseDatabaseContent, syncRowToVaultFile, extractDatabaseRowToStandaloneFile, importPathToDatabase, deleteRowVaultFile, deleteDatabaseRowFromInstance } from '../utils/databaseNodeUtils';
 import { 
   VaultTab, 
   VaultLayoutNode, 
@@ -35,7 +36,7 @@ import {
   updatePaneInTree,
   isTabPathMatch
 } from '../utils/layoutUtils';
-import { parseCanvasDataFromDisk, saveCanvasToDisk } from '../utils/canvasDiskSync';
+import { parseCanvasDataFromDisk, saveCanvasToDisk, deleteCanvasFromDisk } from '../utils/canvasDiskSync';
 import { saveBoardDataToStorage } from '@/modules/board/hooks/useBoardStorage';
 
 export type { VaultTab };
@@ -122,7 +123,8 @@ interface VaultState {
   splitPane: (targetPaneId: string, tab: VaultTab, direction: SplitDirection, position: 'before' | 'after', sourcePaneId?: string) => void;
   closeTabInPane: (paneId: string, path: string) => void;
   setActiveTabInPane: (paneId: string, path: string) => void;
-  moveTabToPane: (sourcePaneId: string, targetPaneId: string, tabPath: string, insertIndex?: number) => void;
+  moveTabToPane: (sourcePaneId: string, targetPaneId: string, tabPath: string, insertIndex?: number, preserveDraggedState?: boolean) => void;
+  reorderPaneTabs: (paneId: string, newTabs: VaultTab[]) => void;
   resizeSplit: (splitId: string, newSizes: number[]) => void;
   setDraggedTab: (draggedTab: DraggedTabInfo | null) => void;
   setDropPreview: (dropPreview: DropPreviewState | null) => void;
@@ -154,8 +156,8 @@ interface VaultState {
   saveMediaFile: (file: File, folderPath?: string) => Promise<string>;
   getFileUrl: (filePath: string) => Promise<string>;
   createFolder: (parentPath?: string, name?: string) => Promise<void>;
-  renameNode: (oldPath: string, newPath: string, isFolder?: boolean) => Promise<void>;
-  moveNode: (sourcePath: string, targetFolderPath: string) => Promise<void>;
+  renameNode: (oldPath: string, newPath: string, isFolder?: boolean) => Promise<string>;
+  moveNode: (sourcePath: string, targetFolderPath: string) => Promise<string | undefined>;
   reorderNodes: (parentPath: string, orderedPaths: string[]) => void;
   deleteNode: (path: string, isFolder: boolean) => Promise<void>;
 
@@ -235,7 +237,8 @@ function flattenTree(nodes: VaultNode[], folder: string = ''): FlatNoteItem[] {
       const isAudio = ['mp3', 'wav', 'ogg', 'm4a', 'flac', 'aac', 'webm', 'opus'].includes(ext);
       const isImage = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'bmp', 'avif'].includes(ext);
       const isDatabase = node.fileType === 'database' || ext === 'database' || node.path.toLowerCase().endsWith('.db.json') || node.path.toLowerCase().endsWith('.database') || node.path.toLowerCase().endsWith('.db.json.md');
-      const fileType = node.fileType || (isAudio ? 'audio' : isImage ? 'image' : isDatabase ? 'database' : 'note');
+      const isCanvas = node.fileType === 'canvas' || ext === 'canvas' || node.path.toLowerCase().endsWith('.canvas');
+      const fileType = node.fileType || (isAudio ? 'audio' : isImage ? 'image' : isDatabase ? 'database' : isCanvas ? 'canvas' : 'note');
 
       result.push({
         path: node.path,
@@ -797,7 +800,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     }
   },
 
-  moveTabToPane: (sourcePaneId: string, targetPaneId: string, tabPath: string, insertIndex?: number) => {
+  moveTabToPane: (sourcePaneId: string, targetPaneId: string, tabPath: string, insertIndex?: number, preserveDraggedState: boolean = false) => {
     const { layout } = get();
     const sourcePane = findPaneLeaf(layout, sourcePaneId);
     const tab = sourcePane?.tabs.find(t => t.path === tabPath);
@@ -806,13 +809,27 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     if (sourcePaneId === targetPaneId) {
       // Reordena dentro da mesma barra de abas
       const updated = updatePaneInTree(layout, sourcePaneId, (pane) => {
-        const nextTabs = pane.tabs.filter(t => t.path !== tabPath);
-        const idx = typeof insertIndex === 'number' ? insertIndex : nextTabs.length;
-        nextTabs.splice(idx, 0, tab);
+        const currentIndex = pane.tabs.findIndex(t => t.path === tabPath);
+        if (currentIndex === -1) return pane;
+        
+        const nextTabs = [...pane.tabs];
+        const [movedTab] = nextTabs.splice(currentIndex, 1);
+        const targetIdx = typeof insertIndex === 'number' 
+          ? Math.max(0, Math.min(insertIndex, nextTabs.length)) 
+          : nextTabs.length;
+        nextTabs.splice(targetIdx, 0, movedTab);
+        
         return { ...pane, tabs: nextTabs, activePath: tabPath };
       });
+      
       saveLayoutToStorage(updated, get().vaultId);
-      set({ layout: updated, activePaneId: sourcePaneId, draggedTab: null, dropPreview: null });
+      const targetPane = findPaneLeaf(updated, sourcePaneId);
+      set({ 
+        layout: updated, 
+        activePaneId: sourcePaneId, 
+        tabs: targetPane?.tabs || [],
+        ...(preserveDraggedState ? {} : { draggedTab: null, dropPreview: null }) 
+      });
       return;
     }
 
@@ -825,11 +842,27 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     set({
       layout: finalLayout,
       activePaneId: targetPaneId,
-      draggedTab: null,
-      dropPreview: null,
       activePath: tabPath,
       tabs: targetPane?.tabs || [],
       activeContent: get().documentCache[tabPath]?.content || '',
+      ...(preserveDraggedState 
+        ? { draggedTab: { sourcePaneId: targetPaneId, tab } } 
+        : { draggedTab: null, dropPreview: null }
+      ),
+    });
+  },
+
+  reorderPaneTabs: (paneId: string, newTabs: VaultTab[]) => {
+    const { layout } = get();
+    const updated = updatePaneInTree(layout, paneId, (pane) => ({
+      ...pane,
+      tabs: newTabs
+    }));
+    saveLayoutToStorage(updated, get().vaultId);
+    const targetPane = findPaneLeaf(updated, paneId);
+    set({
+      layout: updated,
+      tabs: targetPane?.tabs || []
     });
   },
 
@@ -938,15 +971,21 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       return;
     }
 
+    const { isRow: isDbRow, dbPath: cleanDbPath } = parseDatabaseRowPath(path);
+    const checkPath = isDbRow ? cleanDbPath : path;
+    const checkExt = checkPath.split('.').pop()?.toLowerCase() || '';
+
     const isDatabase =
-      ext === 'database' ||
-      path.toLowerCase().endsWith('.db.json') ||
-      path.toLowerCase().endsWith('.database') ||
-      path.toLowerCase().endsWith('.db.json.md');
+      isDbRow ||
+      checkExt === 'database' ||
+      checkPath.toLowerCase().endsWith('.db.json') ||
+      checkPath.toLowerCase().endsWith('.database') ||
+      checkPath.toLowerCase().endsWith('.db.json.md');
+
     if (isDatabase) {
       const { layout, activePaneId } = get();
       const targetId = targetPaneId || activePaneId;
-      const rawTitle = path.split('/').pop() || 'Base de Dados';
+      const rawTitle = checkPath.split('/').pop() || 'Base de Dados';
       const title = rawTitle.replace(/\.(db\.json\.md|db\.json|database)$/i, '');
       const tab: VaultTab = { path, title, type: 'database', fileType: 'database' };
       const updatedLayout = insertTabInPane(layout, targetId, tab, undefined, true);
@@ -1184,9 +1223,46 @@ export const useVaultStore = create<VaultState>((set, get) => ({
 
     if (!provider) return '';
 
+    const { isRow: isDbRow, dbPath, rowId } = parseDatabaseRowPath(path);
+    if (isDbRow) {
+      try {
+        let rawJson = (await provider.readDocument(dbPath)) || '';
+        const db = parseDatabaseContent(rawJson);
+        const row = db?.rows.find(r => r.id === rowId);
+        const bodyMarkdown = row?.content || '';
+        const htmlContent = markdownToHtml(bodyMarkdown);
+        const frontmatter: Record<string, any> = { id: rowId, database: dbPath };
+        if (row?.properties) {
+          Object.assign(frontmatter, row.properties);
+        }
+        set(state => ({
+          documentCache: {
+            ...state.documentCache,
+            [path]: { content: htmlContent, frontmatter, isDirty: false, lastSavedAt: Date.now() }
+          },
+          activeContent: htmlContent
+        }));
+        return htmlContent;
+      } catch (err) {
+        console.warn(`Nota do DB não encontrada em ${path}:`, err);
+        set(state => ({
+          documentCache: {
+            ...state.documentCache,
+            [path]: { content: '', isDirty: false, lastSavedAt: Date.now() }
+          },
+          activeContent: state.activePath === path ? '' : state.activeContent
+        }));
+        return '';
+      }
+    }
+
     try {
       const raw = await provider.readDocument(path);
       const { data: frontmatter, content: bodyMarkdown } = parseFrontmatter(raw);
+      if (frontmatter) {
+        delete frontmatter.id;
+        delete frontmatter.database;
+      }
       const htmlContent = markdownToHtml(bodyMarkdown);
 
       set(state => ({
@@ -1267,11 +1343,36 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     if (!doc) return;
 
     try {
-      let markdown = htmlToMarkdown(doc.content);
-      if (doc.frontmatter && Object.keys(doc.frontmatter).length > 0) {
-        markdown = stringifyFrontmatter(doc.frontmatter, markdown);
+      const { isRow: isDbRow, dbPath, rowId } = parseDatabaseRowPath(path);
+      if (isDbRow) {
+        let rawJson = (await provider.readDocument(dbPath)) || '';
+        const db = parseDatabaseContent(rawJson);
+        if (db) {
+          const row = db.rows.find(r => r.id === rowId);
+          if (row) {
+            row.content = htmlToMarkdown(doc.content);
+            row.updatedAt = Date.now();
+            if (doc.frontmatter) {
+              const { id, database, ...userProps } = doc.frontmatter;
+              row.properties = { ...row.properties, ...userProps };
+            }
+            await provider.saveDocument(dbPath, JSON.stringify(db, null, 2));
+            syncRowToVaultFile(dbPath, row, db.properties, provider).catch(e => console.warn(e));
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('supercanvas-db-updated', { detail: { dbPath } }));
+            }
+          }
+        }
+      } else {
+        let markdown = htmlToMarkdown(doc.content);
+        if (doc.frontmatter && Object.keys(doc.frontmatter).length > 0) {
+          const { id, database, ...cleanFm } = doc.frontmatter;
+          if (Object.keys(cleanFm).length > 0) {
+            markdown = stringifyFrontmatter(cleanFm, markdown);
+          }
+        }
+        await provider.saveDocument(path, markdown);
       }
-      await provider.saveDocument(path, markdown);
 
       set(state => {
         const currentDoc = state.documentCache[path];
@@ -1412,43 +1513,47 @@ export const useVaultStore = create<VaultState>((set, get) => ({
 
     let finalName = rawName?.trim() || '';
     const cleanFolder = folderPath ? sanitizeVaultPath(folderPath, true) : '';
+    const allFiles = get().getAllFiles();
+    const prefix = cleanFolder ? `${cleanFolder}/` : '';
+    const existingPaths = new Set(allFiles.map(f => f.path.toLowerCase()));
+
+    let ext = '.md';
+    let cleanBaseName = 'Nova nota';
+
     if (!finalName) {
-      const allFiles = get().getAllFiles();
-      const prefix = cleanFolder ? `${cleanFolder}/` : '';
-      const existingPaths = new Set(allFiles.map(f => f.path.toLowerCase()));
-
-      const defaultBase = 'Nova nota';
-      const candidate = `${prefix}${defaultBase}.md`.toLowerCase();
-      if (!existingPaths.has(candidate)) {
-        finalName = defaultBase;
-      } else {
-        let counter = 1;
-        while (existingPaths.has(`${prefix}${defaultBase} ${counter}.md`.toLowerCase())) {
-          counter++;
-        }
-        finalName = `${defaultBase} ${counter}`;
-      }
-    }
-
-    let fileName: string;
-    if (finalName.toLowerCase().endsWith('.db.json')) {
+      cleanBaseName = 'Nova nota';
+      ext = '.md';
+    } else if (finalName.toLowerCase().endsWith('.db.json')) {
       const raw = finalName.slice(0, -8);
-      const clean = sanitizeVaultFileName(raw, false) || 'Nova Base de Dados';
-      fileName = `${clean}.db.json`;
+      cleanBaseName = sanitizeVaultFileName(raw, false) || 'Nova Base de Dados';
+      ext = '.db.json';
     } else if (finalName.toLowerCase().endsWith('.database')) {
       const raw = finalName.slice(0, -9);
-      const clean = sanitizeVaultFileName(raw, false) || 'Nova Base de Dados';
-      fileName = `${clean}.database`;
+      cleanBaseName = sanitizeVaultFileName(raw, false) || 'Nova Base de Dados';
+      ext = '.database';
     } else if (finalName.toLowerCase().endsWith('.canvas')) {
       const raw = finalName.slice(0, -7);
-      const clean = sanitizeVaultFileName(raw, false) || 'Novo Canvas';
-      fileName = `${clean}.canvas`;
+      cleanBaseName = sanitizeVaultFileName(raw, false) || 'Novo Canvas';
+      ext = '.canvas';
     } else {
       const baseName = finalName.replace(/\.(md|txt)$/i, '');
-      const cleanBaseName = sanitizeVaultFileName(baseName, false) || 'Nova nota';
-      fileName = `${cleanBaseName}.md`;
+      cleanBaseName = sanitizeVaultFileName(baseName, false) || 'Nova nota';
+      ext = '.md';
     }
-    const fullPath = cleanFolder ? `${cleanFolder}/${fileName}` : fileName;
+
+    let candidateFileName = `${cleanBaseName}${ext}`;
+    let candidateFullPath = prefix ? `${prefix}${candidateFileName}` : candidateFileName;
+
+    if (existingPaths.has(candidateFullPath.toLowerCase())) {
+      let counter = 1;
+      while (existingPaths.has(`${prefix}${cleanBaseName} ${counter}${ext}`.toLowerCase())) {
+        counter++;
+      }
+      candidateFileName = `${cleanBaseName} ${counter}${ext}`;
+      candidateFullPath = prefix ? `${prefix}${candidateFileName}` : candidateFileName;
+    }
+
+    const fullPath = candidateFullPath;
 
     const contentToSave = (initialContent !== undefined)
       ? initialContent
@@ -1672,7 +1777,11 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     await get().refreshNodes();
   },
 
-  renameNode: async (oldPath: string, newPath: string, isFolder: boolean = false) => {
+  renameNode: async (oldPath: string, newPath: string, isFolder: boolean = false): Promise<string> => {
+    const { isRow: isDbRow } = parseDatabaseRowPath(oldPath);
+    if (isDbRow) {
+      return oldPath;
+    }
     let { provider } = get();
     const { layout, activePath, documentCache } = get();
     if (!provider) {
@@ -1683,10 +1792,48 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       throw new Error('Storage não inicializado');
     }
     const cleanNewPath = sanitizeVaultPath(newPath, isFolder);
-    if (oldPath === cleanNewPath) return;
+    if (oldPath === cleanNewPath) return oldPath;
 
-    await provider.renameNode(oldPath, cleanNewPath, isFolder);
-    const actualNewPath = cleanNewPath;
+    let actualNewPath = cleanNewPath;
+
+    if (!isFolder && oldPath.toLowerCase() !== cleanNewPath.toLowerCase()) {
+      const allFiles = get().getAllFiles();
+      const existingPaths = new Set(allFiles.map(f => f.path.toLowerCase()));
+      if (existingPaths.has(cleanNewPath.toLowerCase())) {
+        const lastSlash = cleanNewPath.lastIndexOf('/');
+        const dir = lastSlash !== -1 ? cleanNewPath.slice(0, lastSlash) : '';
+        const file = lastSlash !== -1 ? cleanNewPath.slice(lastSlash + 1) : cleanNewPath;
+        const prefix = dir ? `${dir}/` : '';
+
+        let ext = '.md';
+        let base = file;
+
+        if (file.toLowerCase().endsWith('.db.json')) {
+          ext = '.db.json';
+          base = file.slice(0, -8);
+        } else if (file.toLowerCase().endsWith('.database')) {
+          ext = '.database';
+          base = file.slice(0, -9);
+        } else if (file.toLowerCase().endsWith('.canvas')) {
+          ext = '.canvas';
+          base = file.slice(0, -7);
+        } else {
+          const match = file.match(/\.(md|txt)$/i);
+          ext = match ? match[0] : '.md';
+          base = file.replace(/\.(md|txt)$/i, '');
+        }
+
+        let counter = 1;
+        let candidatePath = `${prefix}${base} ${counter}${ext}`;
+        while (existingPaths.has(candidatePath.toLowerCase()) && candidatePath.toLowerCase() !== oldPath.toLowerCase()) {
+          counter++;
+          candidatePath = `${prefix}${base} ${counter}${ext}`;
+        }
+        actualNewPath = candidatePath;
+      }
+    }
+
+    await provider.renameNode(oldPath, actualNewPath, isFolder);
 
     // Atualiza árvore de layout
     const allPanes = getAllPanes(layout);
@@ -1791,12 +1938,178 @@ export const useVaultStore = create<VaultState>((set, get) => ({
         } catch {}
       }
     }
+
+    return actualNewPath;
   },
 
   moveNode: async (sourcePath: string, targetFolderPath: string) => {
+    // Check if target is a Database file directly OR the DB's folder (e.g. Databases/Planets)
+    let resolvedDbPath: string | null = null;
+    if (targetFolderPath) {
+      const lower = targetFolderPath.toLowerCase();
+      if (lower.endsWith('.db.json') || lower.endsWith('.database') || lower.endsWith('.db.json.md')) {
+        resolvedDbPath = targetFolderPath;
+      } else {
+        const candidateDbPaths = [
+          `${targetFolderPath}.db.json`,
+          `${targetFolderPath}.database`,
+          `${targetFolderPath}.db.json.md`,
+        ];
+        const findNode = (list: VaultNode[], p: string): boolean => {
+          for (const n of list) {
+            if (n.path.toLowerCase() === p.toLowerCase()) return true;
+            if (n.children && findNode(n.children, p)) return true;
+          }
+          return false;
+        };
+        for (const cand of candidateDbPaths) {
+          if (findNode(get().nodes, cand)) {
+            resolvedDbPath = cand;
+            break;
+          }
+        }
+      }
+    }
+
+    if (resolvedDbPath) {
+      let { provider } = get();
+      if (!provider) {
+        await get().initializeStorage();
+        provider = get().provider;
+      }
+      if (!provider) return;
+
+      const newRowPath = await importPathToDatabase(resolvedDbPath, sourcePath, provider);
+      if (newRowPath) {
+        const { layout, activePath, documentCache } = get();
+        const allPanes = getAllPanes(layout);
+        let updatedLayout = layout;
+
+        for (const pane of allPanes) {
+          const hasTab = pane.tabs.some((t) => t.path === sourcePath);
+          if (hasTab) {
+            updatedLayout = updatePaneInTree(updatedLayout, pane.id, (p) => {
+              const nextTabs = p.tabs.map((t) => {
+                if (t.path === sourcePath) {
+                  const newTitle =
+                    sourcePath
+                      .split('/')
+                      .pop()
+                      ?.replace(/\.(md|txt)$/i, '') || 'Nota';
+                  return { ...t, path: newRowPath, title: newTitle };
+                }
+                return t;
+              });
+              const nextActive =
+                p.activePath === sourcePath ? newRowPath : p.activePath;
+              return { ...p, tabs: nextTabs, activePath: nextActive };
+            });
+          }
+        }
+
+        saveLayoutToStorage(updatedLayout, get().vaultId);
+
+        const nextDocCache = { ...documentCache };
+        if (nextDocCache[sourcePath]) {
+          nextDocCache[newRowPath] = nextDocCache[sourcePath];
+          delete nextDocCache[sourcePath];
+        }
+
+        const nextActivePath =
+          activePath === sourcePath ? newRowPath : activePath;
+
+        set({
+          layout: updatedLayout,
+          documentCache: nextDocCache,
+          activePath: nextActivePath,
+        });
+
+        await get().refreshNodes();
+      }
+      return newRowPath || undefined;
+    }
+
+    const { isRow: isDbRow, dbPath, rowId } = parseDatabaseRowPath(sourcePath);
+    if (isDbRow) {
+      let { provider } = get();
+      if (!provider) {
+        await get().initializeStorage();
+        provider = get().provider;
+      }
+      if (!provider) return;
+
+      const newFilePath = await extractDatabaseRowToStandaloneFile(
+        dbPath,
+        rowId,
+        targetFolderPath,
+        provider
+      );
+
+      if (newFilePath) {
+        const { layout, activePath, documentCache } = get();
+        const allPanes = getAllPanes(layout);
+        let updatedLayout = layout;
+
+        for (const pane of allPanes) {
+          const hasTab = pane.tabs.some((t) => t.path === sourcePath);
+          if (hasTab) {
+            updatedLayout = updatePaneInTree(updatedLayout, pane.id, (p) => {
+              const nextTabs = p.tabs.map((t) => {
+                if (t.path === sourcePath) {
+                  const newTitle =
+                    newFilePath
+                      .split('/')
+                      .pop()
+                      ?.replace(/\.(md|txt)$/i, '') || 'Sem título';
+                  return { ...t, path: newFilePath, title: newTitle };
+                }
+                return t;
+              });
+              const nextActive =
+                p.activePath === sourcePath ? newFilePath : p.activePath;
+              return { ...p, tabs: nextTabs, activePath: nextActive };
+            });
+          }
+        }
+
+        saveLayoutToStorage(updatedLayout, get().vaultId);
+
+        const nextDocCache = { ...documentCache };
+        if (nextDocCache[sourcePath]) {
+          const doc = { ...nextDocCache[sourcePath] };
+          if (doc.frontmatter) {
+            const { id, database, createdAt, updatedAt, ...cleanFm } = doc.frontmatter;
+            doc.frontmatter = cleanFm;
+          }
+          nextDocCache[newFilePath] = doc;
+          delete nextDocCache[sourcePath];
+        }
+
+        const nextActivePath =
+          activePath === sourcePath ? newFilePath : activePath;
+
+        set({
+          layout: updatedLayout,
+          documentCache: nextDocCache,
+          activePath: nextActivePath,
+        });
+
+        if (targetFolderPath) {
+          set((state) => {
+            const next = new Set(state.expandedFolders);
+            next.add(targetFolderPath);
+            return { expandedFolders: next };
+          });
+        }
+
+        await get().refreshNodes();
+      }
+      return newFilePath || undefined;
+    }
+
     const fileName = sourcePath.split('/').pop()!;
     const newPath = targetFolderPath ? `${targetFolderPath}/${fileName}` : fileName;
-    if (newPath === sourcePath) return;
+    if (newPath === sourcePath) return newPath;
 
     const findIsFolder = (list: VaultNode[], path: string): boolean => {
       for (const node of list) {
@@ -1818,6 +2131,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
         return { expandedFolders: next };
       });
     }
+    return newPath;
   },
 
   reorderNodes: (parentPath: string, orderedPaths: string[]) => {
@@ -1831,6 +2145,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   },
 
   deleteNode: async (path: string, isFolder: boolean) => {
+    const { isRow: isDbRow, dbPath: parentDbPath, rowId } = parseDatabaseRowPath(path);
     let { provider } = get();
     if (!provider) {
       await get().initializeStorage();
@@ -1845,8 +2160,40 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       }
     }
 
-    // 2. Tenta deletar fisicamente/IDB
-    if (provider) {
+    // 2. Se for uma linha de banco de dados, deleta a linha da estrutura do banco e o arquivo físico de nota
+    if (isDbRow && parentDbPath && rowId && provider) {
+      try {
+        let rawJson = (await provider.readDocument(parentDbPath)) || '';
+        const db = parseDatabaseContent(rawJson);
+        if (db) {
+          const targetRow = db.rows.find(r => r.id === rowId);
+          const updatedDb = deleteDatabaseRowFromInstance(db, rowId);
+          const updatedJson = JSON.stringify(updatedDb, null, 2);
+          await provider.saveDocument(parentDbPath, updatedJson);
+          if (targetRow) {
+            await deleteRowVaultFile(parentDbPath, targetRow, provider);
+          }
+          await get().refreshNodes();
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('supercanvas-db-updated', { detail: { dbPath: parentDbPath, removedRowId: rowId } })
+            );
+          }
+        }
+      } catch (err) {
+        console.warn('Erro ao deletar nota do banco de dados:', err);
+      }
+    } else if (path.startsWith('canvas:')) {
+      const canvasId = path.replace('canvas:', '');
+      const c = get().canvases.find(item => item.id === canvasId);
+      if (c && c.canvasType === 'board' && provider) {
+        try {
+          await deleteCanvasFromDisk(provider, c.folderPath, c.name);
+        } catch (err) {
+          console.warn('Erro ao deletar canvas do disco:', err);
+        }
+      }
+    } else if (provider) {
       try {
         await provider.deleteNode(path, isFolder);
       } catch (err) {
@@ -1908,7 +2255,20 @@ export const useVaultStore = create<VaultState>((set, get) => ({
       }
     }
 
-    // 6. Limpa do orderMap persistente
+    // 6. Limpa o cache de documentos para este arquivo/pasta
+    const cache = { ...get().documentCache };
+    let cacheChanged = false;
+    for (const k of Object.keys(cache)) {
+      if (isTabPathMatch(k, path, isFolder)) {
+        delete cache[k];
+        cacheChanged = true;
+      }
+    }
+    if (cacheChanged) {
+      set({ documentCache: cache });
+    }
+
+    // 7. Limpa do orderMap persistente
     const orderMap = getCustomOrder();
     let orderChanged = false;
     const newOrderMap: Record<string, string[]> = {};
@@ -1930,19 +2290,6 @@ export const useVaultStore = create<VaultState>((set, get) => ({
 
     if (orderChanged) {
       setCustomOrder(newOrderMap);
-    }
-
-    // 7. Limpa do cache de documentos
-    const currentCache = { ...get().documentCache };
-    let cacheChanged = false;
-    for (const cachedPath of Object.keys(currentCache)) {
-      if (isTabPathMatch(cachedPath, path, isFolder)) {
-        delete currentCache[cachedPath];
-        cacheChanged = true;
-      }
-    }
-    if (cacheChanged) {
-      set({ documentCache: currentCache });
     }
 
     // 8. Notifica outros contextos/janelas via BroadcastChannel

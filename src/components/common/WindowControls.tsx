@@ -49,11 +49,12 @@ export const WindowControls: React.FC<WindowControlsProps> = ({
   return (
     <div 
       className={clsx(
-        "flex items-center gap-0.5 select-none shrink-0 z-50 app-region-no-drag pointer-events-auto",
+        "flex items-center gap-0.5 select-none shrink-0 z-50 app-region-no-drag pointer-events-auto relative",
         className
       )}
       style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       onMouseDown={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
     >
       {/* Botão Minimizar */}
       <button
@@ -63,6 +64,7 @@ export const WindowControls: React.FC<WindowControlsProps> = ({
           minimizeWindow();
         }}
         onMouseDown={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
         data-no-drag="true"
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         className={clsx(
@@ -74,7 +76,12 @@ export const WindowControls: React.FC<WindowControlsProps> = ({
         title="Minimizar"
         aria-label="Minimizar janela"
       >
-        <Minus size={iconSize} strokeWidth={2} className="pointer-events-none" />
+        <Minus 
+          size={iconSize} 
+          strokeWidth={2} 
+          className="pointer-events-auto app-region-no-drag" 
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} 
+        />
       </button>
 
       {/* Botão Maximizar / Restaurar */}
@@ -85,6 +92,7 @@ export const WindowControls: React.FC<WindowControlsProps> = ({
           maximizeWindow();
         }}
         onMouseDown={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
         data-no-drag="true"
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         className={clsx(
@@ -97,9 +105,19 @@ export const WindowControls: React.FC<WindowControlsProps> = ({
         aria-label={maximized ? "Restaurar janela" : "Maximizar janela"}
       >
         {maximized ? (
-          <Copy size={iconSize - 2} strokeWidth={2} className="rotate-90 pointer-events-none" />
+          <Copy 
+            size={iconSize - 2} 
+            strokeWidth={2} 
+            className="rotate-90 pointer-events-auto app-region-no-drag" 
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} 
+          />
         ) : (
-          <Square size={iconSize - 2} strokeWidth={2} className="pointer-events-none" />
+          <Square 
+            size={iconSize - 2} 
+            strokeWidth={2} 
+            className="pointer-events-auto app-region-no-drag" 
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} 
+          />
         )}
       </button>
 
@@ -111,6 +129,7 @@ export const WindowControls: React.FC<WindowControlsProps> = ({
           closeWindow();
         }}
         onMouseDown={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
         data-no-drag="true"
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         className={clsx(
@@ -122,7 +141,12 @@ export const WindowControls: React.FC<WindowControlsProps> = ({
         title="Fechar"
         aria-label="Fechar aplicação"
       >
-        <X size={iconSize + 1} strokeWidth={2} className="pointer-events-none" />
+        <X 
+          size={iconSize + 1} 
+          strokeWidth={2} 
+          className="pointer-events-auto app-region-no-drag" 
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} 
+        />
       </button>
     </div>
   );

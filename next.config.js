@@ -1,8 +1,7 @@
-import type { NextConfig } from "next";
-
+﻿/** @type {import('next').NextConfig} */
 const isExport = process.env.NEXT_EXPORT === 'true' || process.env.CAPACITOR_BUILD === 'true';
 
-const nextConfig: NextConfig = {
+const nextConfig = {
   reactStrictMode: true,
   ...(isExport
     ? {
@@ -13,5 +12,4 @@ const nextConfig: NextConfig = {
     : {}),
 };
 
-export default nextConfig;
-
+module.exports = nextConfig;

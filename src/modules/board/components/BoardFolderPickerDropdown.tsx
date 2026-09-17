@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Folder, Box, Check, Search, FolderTree, ChevronRight } from 'lucide-react';
 import clsx from 'clsx';
+import { useClickOutside } from '@/hooks/useClickOutside';
 
 export interface BoardFolderPickerDropdownProps {
   isOpen: boolean;
@@ -21,30 +22,11 @@ export const BoardFolderPickerDropdown: React.FC<BoardFolderPickerDropdownProps>
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Close on outside click
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleKeyDown);
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen, onClose]);
+  useClickOutside({
+    ref: dropdownRef,
+    onClose,
+    enabled: isOpen,
+  });
 
   // Focus search input on open if search is visible
   useEffect(() => {

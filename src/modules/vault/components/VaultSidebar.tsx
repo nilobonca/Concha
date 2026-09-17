@@ -19,11 +19,23 @@ import {
   FilePlus, FolderPlus, Trash2, Search, HardDrive, Database,
   RefreshCw, FolderSync, LayoutTemplate, Edit2, BookmarkPlus,
   Copy, FolderInput, Music, Check, FolderKanban, Box, Upload, Image as ImageIcon,
-  Settings, Loader2
+  Settings, Loader2, X
 } from 'lucide-react';
 import { FSAStorageProvider } from '../storage/FSAStorageProvider';
 import { InlineRenameInput } from './sidebar/InlineRenameInput';
 import { createDefaultDatabase } from '@/modules/database/utils/databaseDefaults';
+import { 
+  parseDatabaseRowPath,
+  formatDatabaseRowPath,
+  convertRowsToVaultNodes,
+  parseDatabaseContent,
+  createDatabaseRowInInstance,
+  renameDatabaseRowInInstance,
+  deleteDatabaseRowFromInstance,
+  syncRowToVaultFile,
+  deleteRowVaultFile,
+  DatabaseRowVaultNode
+} from '../utils/databaseNodeUtils';
 
 interface FolderInputRowProps {
   parentPath: string;
@@ -116,6 +128,62 @@ export const VaultSidebar: React.FC = () => {
   const [isConnectingFolder, setIsConnectingFolder] = useState(false);
   const [reconnectError, setReconnectError] = useState<string | null>(null);
 
+  // Cache de registros de bancos de dados mapeados como notas filhas no explorador
+  const [dbRowsCache, setDbRowsCache] = useState<Record<string, VaultNode[]>>({});
+
+  const loadDatabaseRows = React.useCallback(async (dbPath: string) => {
+    if (!dbPath) return;
+    try {
+      let rawJson = '';
+      const activeProvider = provider || useVaultStore.getState().provider;
+      if (activeProvider) {
+        try {
+          rawJson = await activeProvider.readDocument(dbPath);
+        } catch (readErr) {
+          console.warn('[VaultSidebar] Falha ao ler documento pelo provider:', readErr);
+        }
+      }
+
+      const db = parseDatabaseContent(rawJson);
+      if (db && Array.isArray(db.rows)) {
+        const rowNodes = convertRowsToVaultNodes(dbPath, db.rows);
+        setDbRowsCache(prev => ({ ...prev, [dbPath]: rowNodes }));
+      } else {
+        setDbRowsCache(prev => ({ ...prev, [dbPath]: [] }));
+      }
+    } catch (err) {
+      console.warn('[VaultSidebar] Erro ao carregar notas do banco de dados:', err);
+    }
+  }, [provider]);
+
+  // Atualização reativa de registros de banco quando salvos ou editados
+  React.useEffect(() => {
+    const handleDbUpdated = (e: Event) => {
+      const customEv = e as CustomEvent<{ dbPath: string }>;
+      if (customEv.detail && customEv.detail.dbPath) {
+        loadDatabaseRows(customEv.detail.dbPath);
+      }
+    };
+
+    window.addEventListener('supercanvas-db-updated', handleDbUpdated);
+    return () => {
+      window.removeEventListener('supercanvas-db-updated', handleDbUpdated);
+    };
+  }, [loadDatabaseRows]);
+
+  // Carrega automaticamente os registros das bases ativas na árvore de arquivos expandidas
+  React.useEffect(() => {
+    expandedFolders.forEach((folderPath) => {
+      if (
+        folderPath.toLowerCase().includes('.db.json') ||
+        folderPath.toLowerCase().includes('.database') ||
+        folderPath.toLowerCase().endsWith('.db.json.md')
+      ) {
+        loadDatabaseRows(folderPath);
+      }
+    });
+  }, [expandedFolders, loadDatabaseRows, nodes, provider]);
+
   // New file / folder creation states
   const [newFileInputFolder, setNewFileInputFolder] = useState<string | null>(null);
   const [newFileName, setNewFileName] = useState('');
@@ -153,14 +221,38 @@ export const VaultSidebar: React.FC = () => {
     canvas?: Layer;
   } | null>(null);
 
-  // Selected item in the file explorer
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  // Selected items in the file explorer (Multi-selection support)
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+  const [lastSelectedPath, setLastSelectedPath] = useState<string | null>(null);
   const sidebarRef = useRef<HTMLDivElement>(null);
 
-  // Synchronize selectedPath with activePath whenever activePath changes
+  // Derived primary selectedPath for legacy compatibility
+  const selectedPath = useMemo(() => {
+    if (lastSelectedPath && selectedPaths.has(lastSelectedPath)) {
+      return lastSelectedPath;
+    }
+    const first = Array.from(selectedPaths)[0];
+    return first || null;
+  }, [selectedPaths, lastSelectedPath]);
+
+  const setSelectedPath = React.useCallback((path: string | null) => {
+    if (!path) {
+      setSelectedPaths(new Set());
+      setLastSelectedPath(null);
+    } else {
+      setSelectedPaths(new Set([path]));
+      setLastSelectedPath(path);
+    }
+  }, []);
+
+  // Synchronize selectedPaths with activePath whenever activePath changes
   React.useEffect(() => {
     if (activePath) {
-      setSelectedPath(activePath);
+      setSelectedPaths((prev) => {
+        if (prev.has(activePath)) return prev;
+        return new Set([activePath]);
+      });
+      setLastSelectedPath((prev) => prev || activePath);
     }
   }, [activePath]);
 
@@ -196,12 +288,55 @@ export const VaultSidebar: React.FC = () => {
     return null;
   };
 
-  // Helper to trigger deletion modal for currently selected item
+  // Multi-delete execution helper
+  const handleBatchDelete = async (pathsToDelete: string[]) => {
+    for (const path of pathsToDelete) {
+      if (path.startsWith('canvas:')) {
+        const canvasId = path.replace('canvas:', '');
+        const c = allCanvases.find(item => item.id === canvasId);
+        if (c && c.canvasType === 'board' && provider) {
+          await deleteCanvasFromDisk(provider, c.folderPath, c.name);
+        }
+        if (c) {
+          deleteLayer(c.id);
+          closeTab(`canvas:${c.id}`);
+        }
+      } else {
+        const node = findNodeByPath(nodes, path);
+        const isFolder = node ? node.type === 'folder' : false;
+        await deleteNode(path, isFolder);
+      }
+    }
+    refreshNodes();
+    setSelectedPaths(new Set());
+    setLastSelectedPath(null);
+  };
+
+  // Helper to trigger deletion modal for currently selected item(s)
   const triggerDeleteSelected = (customPath?: string) => {
-    const targetPath = customPath || selectedPath || activePath;
-    if (!targetPath) return;
+    const targetPaths = (selectedPaths.size > 1 && (!customPath || selectedPaths.has(customPath)))
+      ? Array.from(selectedPaths)
+      : [customPath || selectedPath || activePath].filter(Boolean) as string[];
+
+    if (targetPaths.length === 0) return;
 
     const skipConfirm = typeof window !== 'undefined' && localStorage.getItem('vault_skip_delete_confirm') === 'true';
+
+    if (targetPaths.length > 1) {
+      if (skipConfirm) {
+        handleBatchDelete(targetPaths);
+        return;
+      }
+      setDeleteTarget({
+        path: '__BATCH__',
+        name: `${targetPaths.length} itens`,
+        isFolder: false,
+        itemType: 'file'
+      });
+      return;
+    }
+
+    const targetPath = targetPaths[0];
 
     if (targetPath.startsWith('canvas:')) {
       const canvasId = targetPath.replace('canvas:', '');
@@ -239,9 +374,11 @@ export const VaultSidebar: React.FC = () => {
 
     if (skipConfirm) {
       deleteNode(node.path, isFolder);
-      if (selectedPath === node.path) {
-        setSelectedPath(null);
-      }
+      setSelectedPaths(prev => {
+        const next = new Set(prev);
+        next.delete(node.path);
+        return next;
+      });
       return;
     }
 
@@ -253,110 +390,9 @@ export const VaultSidebar: React.FC = () => {
     });
   };
 
-  // Keyboard shortcut handler (Delete & F2 rename) for explorer items
-  React.useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      const activeEl = document.activeElement as HTMLElement | null;
 
-      const isEditable = (el: HTMLElement | null) => {
-        if (!el) return false;
-        return (
-          el.tagName === 'INPUT' ||
-          el.tagName === 'TEXTAREA' ||
-          el.isContentEditable ||
-          !!el.closest('input') ||
-          !!el.closest('textarea') ||
-          !!el.closest('[contenteditable="true"]') ||
-          !!el.closest('.tiptap') ||
-          !!el.closest('.ProseMirror') ||
-          !!el.closest('.monaco-editor') ||
-          !!el.closest('[data-editor-container]')
-        );
-      };
 
-      if (isEditable(target) || isEditable(activeEl)) {
-        return;
-      }
 
-      // Atalho F2 para renomear item selecionado diretamente no explorer
-      if (e.key === 'F2') {
-        const isInsideSidebar = 
-          Boolean(sidebarRef.current && (sidebarRef.current.contains(target) || sidebarRef.current.contains(activeEl)));
-        if (isInsideSidebar && selectedPath && !selectedPath.startsWith('canvas:')) {
-          e.preventDefault();
-          e.stopPropagation();
-          setRenamingNodePath(selectedPath);
-          return;
-        }
-      }
-
-      if (e.key !== 'Delete') return;
-
-      // O atalho Delete do teclado NUNCA deve excluir um canvas/quadro sob nenhuma hipótese!
-      if (selectedPath?.startsWith('canvas:') || activePath?.startsWith('canvas:')) {
-        return;
-      }
-
-      // Block if any modal or input row is currently open
-      if (
-        deleteTarget !== null ||
-        promptModal !== null ||
-        renamingNodePath !== null ||
-        newFileInputFolder !== null ||
-        newFolderInputParent !== null
-      ) {
-        return;
-      }
-
-      // Block if modifiers like Ctrl or Alt are held
-      if (e.ctrlKey || e.altKey || e.metaKey) {
-        return;
-      }
-
-      // NUNCA interceptar se a interação ocorreu no workspace principal, canvas de conexões ou editor
-      if (
-        target?.closest('main') ||
-        activeEl?.closest('main') ||
-        target?.closest('[data-board-canvas]') ||
-        activeEl?.closest('[data-board-canvas]') ||
-        target?.closest('[data-pane-container]') ||
-        activeEl?.closest('[data-pane-container]') ||
-        target?.closest('.board-container') ||
-        activeEl?.closest('.board-container')
-      ) {
-        return;
-      }
-
-      // O Delete do explorer só deve agir se o evento originou ou o foco está dentro da própria sidebar
-      const isInsideSidebar = 
-        Boolean(sidebarRef.current && (sidebarRef.current.contains(target) || sidebarRef.current.contains(activeEl)));
-      if (!isInsideSidebar) {
-        return;
-      }
-
-      const targetPath = selectedPath;
-      if (!targetPath || targetPath.startsWith('canvas:')) return;
-
-      e.preventDefault();
-      e.stopPropagation();
-
-      triggerDeleteSelected(targetPath);
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [
-    selectedPath,
-    activePath,
-    deleteTarget,
-    promptModal,
-    renamingNodePath,
-    newFileInputFolder,
-    newFolderInputParent,
-    nodes,
-    allCanvases
-  ]);
 
 
   // Sidebar resize states & handlers
@@ -514,6 +550,39 @@ export const VaultSidebar: React.FC = () => {
       setNewFileInputFolder(null);
       return;
     }
+
+    const isDbFolder =
+      folderPath.toLowerCase().endsWith('.db.json') ||
+      folderPath.toLowerCase().endsWith('.database') ||
+      folderPath.toLowerCase().endsWith('.db.json.md');
+
+    if (isDbFolder) {
+      try {
+        let rawJson = (await provider?.readDocument(folderPath)) || '';
+        const db = parseDatabaseContent(rawJson) || createDefaultDatabase(folderPath.split('/').pop()?.replace(/\.(db\.json|database)$/i, '') || 'Base de Dados');
+        const { updatedDb, newRow } = createDatabaseRowInInstance(db, rawName);
+        const updatedJson = JSON.stringify(updatedDb, null, 2);
+        if (provider) {
+          await provider.saveDocument(folderPath, updatedJson);
+          await syncRowToVaultFile(folderPath, newRow, updatedDb.properties, provider);
+          await loadDatabaseRows(folderPath);
+          await useVaultStore.getState().refreshNodes();
+        }
+        window.dispatchEvent(new CustomEvent('supercanvas-db-updated', { detail: { dbPath: folderPath } }));
+        if (!expandedFolders.has(folderPath)) {
+          toggleFolder(folderPath);
+        }
+        const newRowPath = formatDatabaseRowPath(folderPath, newRow.id);
+        await openDocument(newRowPath);
+      } catch (err) {
+        console.error('[VaultSidebar] Erro ao criar nota no banco de dados:', err);
+      } finally {
+        setNewFileName('');
+        setNewFileInputFolder(null);
+      }
+      return;
+    }
+
     try {
       await createFile(folderPath, rawName);
     } catch (err) {
@@ -598,6 +667,25 @@ export const VaultSidebar: React.FC = () => {
     setRenamingNodePath(null);
     const trimmed = newName.trim();
     if (!trimmed) return;
+
+    const { isRow: isDbRow, dbPath: parentDbPath, rowId } = parseDatabaseRowPath(node.path);
+    if (isDbRow) {
+      try {
+        let rawJson = (await provider?.readDocument(parentDbPath)) || '';
+        const db = parseDatabaseContent(rawJson);
+        if (db) {
+          const updatedDb = renameDatabaseRowInInstance(db, rowId, trimmed);
+          const updatedJson = JSON.stringify(updatedDb, null, 2);
+          if (provider) {
+            await provider.saveDocument(parentDbPath, updatedJson);
+          }
+          window.dispatchEvent(new CustomEvent('supercanvas-db-updated', { detail: { dbPath: parentDbPath } }));
+        }
+      } catch (err) {
+        console.error('[VaultSidebar] Erro ao renomear nota do DB:', err);
+      }
+      return;
+    }
 
     const isFolder = node.type === 'folder';
     const isDatabase =
@@ -745,7 +833,21 @@ export const VaultSidebar: React.FC = () => {
     const lower = query.toLowerCase();
 
     return nodeList.reduce<VaultNode[]>((acc, node) => {
-      if (node.type === 'file') {
+      const isDbNode =
+        node.fileType === 'database' ||
+        node.extension === 'database' ||
+        node.extension === 'db.json' ||
+        node.name.toLowerCase().endsWith('.db.json') ||
+        node.name.toLowerCase().endsWith('.database') ||
+        node.path.toLowerCase().endsWith('.db.json');
+
+      if (isDbNode) {
+        const rowNodes = dbRowsCache[node.path] || [];
+        const matchingRows = rowNodes.filter(r => r.name.toLowerCase().includes(lower));
+        if (node.name.toLowerCase().includes(lower) || matchingRows.length > 0) {
+          acc.push(node);
+        }
+      } else if (node.type === 'file') {
         if (node.name.toLowerCase().includes(lower)) {
           acc.push(node);
         }
@@ -809,7 +911,9 @@ export const VaultSidebar: React.FC = () => {
 
   const getExistingKeysInParent = (p: string): string[] => {
     let pNodes: VaultNode[] = [];
-    if (p === '') {
+    if (dbRowsCache[p]) {
+      pNodes = dbRowsCache[p];
+    } else if (p === '') {
       pNodes = nodes;
     } else if (p === '__GENERAL_CANVASES__') {
       pNodes = [];
@@ -841,11 +945,283 @@ export const VaultSidebar: React.FC = () => {
     return getSortedFolderItems(items, p).map(i => i.id);
   };
 
+  // Recursively collect ordered list of currently visible paths in the explorer tree
+  const getVisibleNodeList = React.useCallback((): string[] => {
+    const result: string[] = [];
+
+    const traverse = (parentPath: string, childNodes: VaultNode[]) => {
+      const childCanvases = allCanvases.filter(c => {
+        const cFolder = c.folderPath || '';
+        const matchFolder = parentPath === '' ? (cFolder === '' || cFolder === '__ROOT__') : cFolder === parentPath;
+        if (!matchFolder) return false;
+        if (searchQuery) return c.name.toLowerCase().includes(searchQuery.toLowerCase());
+        return true;
+      });
+
+      const childCanvasNames = new Set(
+        childCanvases.map(c => `${c.name.toLowerCase().replace(/\.canvas$/i, '')}.canvas`)
+      );
+
+      const filteredChildNodes = childNodes.filter(n => {
+        if (n.type === 'file' && (n.extension === 'canvas' || n.name.toLowerCase().endsWith('.canvas'))) {
+          return !childCanvasNames.has(n.name.toLowerCase());
+        }
+        return true;
+      });
+
+      const items: TreeItem[] = [
+        ...filteredChildNodes.map(n => ({ kind: 'node' as const, id: n.path, node: n })),
+        ...childCanvases.map(c => ({ kind: 'canvas' as const, id: `canvas:${c.id}`, canvas: c }))
+      ];
+
+      const sortedItems = getSortedFolderItems(items, parentPath);
+
+      for (const item of sortedItems) {
+        if (item.kind === 'node') {
+          const node = item.node;
+          result.push(node.path);
+          const isFolder = node.type === 'folder';
+          const isDbRow = (node as DatabaseRowVaultNode).isDatabaseRow || parseDatabaseRowPath(node.path).isRow;
+          const isDatabaseNode =
+            !isDbRow &&
+            (node.fileType === 'database' ||
+              node.extension === 'database' ||
+              node.extension === 'db.json' ||
+              node.name.toLowerCase().endsWith('.db.json') ||
+              node.name.toLowerCase().endsWith('.database') ||
+              node.path.toLowerCase().endsWith('.db.json') ||
+              node.path.toLowerCase().endsWith('.database') ||
+              node.path.toLowerCase().endsWith('.db.json.md'));
+
+          if (isFolder && expandedFolders.has(node.path)) {
+            traverse(node.path, node.children || []);
+          } else if (isDatabaseNode && expandedFolders.has(node.path)) {
+            const rows = dbRowsCache[node.path] || [];
+            rows.forEach(r => result.push(r.path));
+          }
+        } else {
+          result.push(`canvas:${item.canvas.id}`);
+        }
+      }
+    };
+
+    if (sidebarTab === 'canvases') {
+      const order = getCustomOrder()['__GENERAL_CANVASES__'] || [];
+      const list = [...generalCanvases];
+      list.sort((a, b) => {
+        const idxA = order.indexOf(`canvas:${a.id}`);
+        const idxB = order.indexOf(`canvas:${b.id}`);
+        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+        if (idxA !== -1) return -1;
+        if (idxB !== -1) return 1;
+        return a.name.localeCompare(b.name);
+      });
+      const filtered = searchQuery.trim() 
+        ? list.filter(c => c.name.toLowerCase().includes(searchQuery.toLowerCase().trim()))
+        : list;
+      return filtered.map(c => `canvas:${c.id}`);
+    }
+
+    traverse('', filteredNodes);
+    return result;
+  }, [allCanvases, searchQuery, expandedFolders, dbRowsCache, sidebarTab, generalCanvases, filteredNodes, getSortedFolderItems]);
+
+  // Handle multi-selection click (Shift / Ctrl / Cmd)
+  const handleItemSelectClick = React.useCallback((
+    e: React.MouseEvent,
+    path: string,
+    onOpenAction?: () => void
+  ) => {
+    e.stopPropagation();
+
+    if (e.shiftKey && lastSelectedPath) {
+      const visibleList = getVisibleNodeList();
+      const anchorIdx = visibleList.indexOf(lastSelectedPath);
+      const targetIdx = visibleList.indexOf(path);
+
+      if (anchorIdx !== -1 && targetIdx !== -1) {
+        const start = Math.min(anchorIdx, targetIdx);
+        const end = Math.max(anchorIdx, targetIdx);
+        const range = visibleList.slice(start, end + 1);
+
+        if (e.ctrlKey || e.metaKey) {
+          setSelectedPaths((prev) => {
+            const next = new Set(prev);
+            range.forEach((p) => next.add(p));
+            return next;
+          });
+        } else {
+          setSelectedPaths(new Set(range));
+        }
+        setLastSelectedPath(path);
+        return;
+      }
+    }
+
+    if (e.ctrlKey || e.metaKey) {
+      setSelectedPaths((prev) => {
+        const next = new Set(prev);
+        if (next.has(path)) {
+          next.delete(path);
+        } else {
+          next.add(path);
+        }
+        return next;
+      });
+      setLastSelectedPath(path);
+      return;
+    }
+
+    // Single click without modifiers
+    setSelectedPaths(new Set([path]));
+    setLastSelectedPath(path);
+    if (onOpenAction) {
+      onOpenAction();
+    }
+  }, [lastSelectedPath, getVisibleNodeList]);
+
+  // Keyboard shortcut handler (Delete, F2 rename, Ctrl+A select all, Escape) for explorer items
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const activeEl = document.activeElement as HTMLElement | null;
+
+      const isEditable = (el: HTMLElement | null) => {
+        if (!el) return false;
+        return (
+          el.tagName === 'INPUT' ||
+          el.tagName === 'TEXTAREA' ||
+          el.isContentEditable ||
+          !!el.closest('input') ||
+          !!el.closest('textarea') ||
+          !!el.closest('[contenteditable="true"]') ||
+          !!el.closest('.tiptap') ||
+          !!el.closest('.ProseMirror') ||
+          !!el.closest('.monaco-editor') ||
+          !!el.closest('[data-editor-container]')
+        );
+      };
+
+      if (isEditable(target) || isEditable(activeEl)) {
+        return;
+      }
+
+      // Atalho Ctrl+A / Cmd+A para selecionar todos os arquivos visíveis na barra lateral
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+        const isInsideSidebar = Boolean(sidebarRef.current && (sidebarRef.current.contains(target) || sidebarRef.current.contains(activeEl)));
+        if (isInsideSidebar) {
+          e.preventDefault();
+          e.stopPropagation();
+          const visibleList = getVisibleNodeList();
+          setSelectedPaths(new Set(visibleList));
+          if (visibleList.length > 0) {
+            setLastSelectedPath(visibleList[0]);
+          }
+          return;
+        }
+      }
+
+      // Atalho Escape para desmarcar a seleção atual na sidebar
+      if (e.key === 'Escape') {
+        const isInsideSidebar = Boolean(sidebarRef.current && (sidebarRef.current.contains(target) || sidebarRef.current.contains(activeEl)));
+        if (isInsideSidebar && selectedPaths.size > 0) {
+          e.preventDefault();
+          e.stopPropagation();
+          setSelectedPaths(new Set());
+          setLastSelectedPath(null);
+          return;
+        }
+      }
+
+      // Atalho F2 para renomear item selecionado diretamente no explorer
+      if (e.key === 'F2') {
+        const isInsideSidebar = 
+          Boolean(sidebarRef.current && (sidebarRef.current.contains(target) || sidebarRef.current.contains(activeEl)));
+        if (isInsideSidebar && selectedPath && !selectedPath.startsWith('canvas:')) {
+          e.preventDefault();
+          e.stopPropagation();
+          setRenamingNodePath(selectedPath);
+          return;
+        }
+      }
+
+      if (e.key !== 'Delete') return;
+
+      // O atalho Delete do teclado NUNCA deve excluir um canvas/quadro sob nenhuma hipótese!
+      if (selectedPath?.startsWith('canvas:') || activePath?.startsWith('canvas:')) {
+        return;
+      }
+
+      // Block if any modal or input row is currently open
+      if (
+        deleteTarget !== null ||
+        promptModal !== null ||
+        renamingNodePath !== null ||
+        newFileInputFolder !== null ||
+        newFolderInputParent !== null
+      ) {
+        return;
+      }
+
+      // Block if modifiers like Ctrl or Alt are held
+      if (e.ctrlKey || e.altKey || e.metaKey) {
+        return;
+      }
+
+      // NUNCA interceptar se a interação ocorreu no workspace principal, canvas de conexões ou editor
+      if (
+        target?.closest('main') ||
+        activeEl?.closest('main') ||
+        target?.closest('[data-board-canvas]') ||
+        activeEl?.closest('[data-board-canvas]') ||
+        target?.closest('[data-pane-container]') ||
+        activeEl?.closest('[data-pane-container]') ||
+        target?.closest('.board-container') ||
+        activeEl?.closest('.board-container')
+      ) {
+        return;
+      }
+
+      // O Delete do explorer só deve agir se o evento originou ou o foco está dentro da própria sidebar
+      const isInsideSidebar = 
+        Boolean(sidebarRef.current && (sidebarRef.current.contains(target) || sidebarRef.current.contains(activeEl)));
+      if (!isInsideSidebar) {
+        return;
+      }
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      triggerDeleteSelected();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    selectedPath,
+    selectedPaths,
+    activePath,
+    deleteTarget,
+    promptModal,
+    renamingNodePath,
+    newFileInputFolder,
+    newFolderInputParent,
+    nodes,
+    allCanvases,
+    getVisibleNodeList,
+    triggerDeleteSelected
+  ]);
+
   const handleItemDragOver = (e: React.DragEvent, targetItem: TreeItem, parentPath: string) => {
-    if (!draggedNode && !draggedCanvas) return;
+    const isVaultNoteDrag =
+      e.dataTransfer.types.includes('application/rpgsa-vault-note') ||
+      e.dataTransfer.types.includes('text/plain');
+    const isExternalFiles = e.dataTransfer.types.includes('Files');
+
+    if (!draggedNode && !draggedCanvas && !isVaultNoteDrag && !isExternalFiles) return;
 
     const currentKey = draggedNode ? draggedNode.path : `canvas:${draggedCanvas?.id}`;
-    if (currentKey === targetItem.id) return;
+    if (currentKey && currentKey === targetItem.id) return;
 
     // Prevent folder inside itself or its children
     if (draggedNode && draggedNode.type === 'folder') {
@@ -862,9 +1238,20 @@ export const VaultSidebar: React.FC = () => {
     const height = rect.height;
 
     const isTargetFolder = targetItem.kind === 'node' && targetItem.node.type === 'folder';
+    const isTargetDatabase = targetItem.kind === 'node' && (
+      targetItem.node.fileType === 'database' ||
+      targetItem.node.extension === 'database' ||
+      targetItem.node.extension === 'db.json' ||
+      targetItem.node.name.toLowerCase().endsWith('.db.json') ||
+      targetItem.node.name.toLowerCase().endsWith('.database') ||
+      targetItem.node.path.toLowerCase().endsWith('.db.json') ||
+      targetItem.node.path.toLowerCase().endsWith('.database') ||
+      targetItem.node.path.toLowerCase().endsWith('.db.json.md')
+    );
+    const isTargetContainer = isTargetFolder || isTargetDatabase;
 
     let position: 'before' | 'after' | 'inside';
-    if (isTargetFolder) {
+    if (isTargetContainer) {
       if (y < height * 0.25) {
         position = 'before';
         clearHoverTimer();
@@ -918,11 +1305,22 @@ export const VaultSidebar: React.FC = () => {
     const y = e.clientY - rect.top;
     const height = rect.height;
     const isTargetFolder = targetItem.kind === 'node' && targetItem.node.type === 'folder';
+    const isTargetDatabase = targetItem.kind === 'node' && (
+      targetItem.node.fileType === 'database' ||
+      targetItem.node.extension === 'database' ||
+      targetItem.node.extension === 'db.json' ||
+      targetItem.node.name.toLowerCase().endsWith('.db.json') ||
+      targetItem.node.name.toLowerCase().endsWith('.database') ||
+      targetItem.node.path.toLowerCase().endsWith('.db.json') ||
+      targetItem.node.path.toLowerCase().endsWith('.database') ||
+      targetItem.node.path.toLowerCase().endsWith('.db.json.md')
+    );
+    const isTargetContainer = isTargetFolder || isTargetDatabase;
 
     let position: 'before' | 'after' | 'inside';
     if (dropTargetRef.current && dropTargetRef.current.id === targetItem.id) {
       position = dropTargetRef.current.position;
-    } else if (isTargetFolder) {
+    } else if (isTargetContainer) {
       if (y < height * 0.25) position = 'before';
       else if (y > height * 0.75) position = 'after';
       else position = 'inside';
@@ -944,32 +1342,81 @@ export const VaultSidebar: React.FC = () => {
       return;
     }
 
-    if (!draggedNode && !draggedCanvas) return;
+    const noteDataRaw = e.dataTransfer.getData('application/rpgsa-vault-note');
+    const plainPath = e.dataTransfer.getData('text/plain');
 
-    // 1. Drop INSIDE folder
+    let draggedPath = draggedNode ? draggedNode.path : '';
+    if (!draggedPath && noteDataRaw) {
+      try {
+        const parsed = JSON.parse(noteDataRaw);
+        draggedPath = parsed.path;
+      } catch {}
+    }
+    if (!draggedPath && plainPath && (plainPath.includes('/') || plainPath.includes('#row:'))) {
+      draggedPath = plainPath;
+    }
+
+    if (!draggedPath && !draggedCanvas) return;
+
+    // 1. Drop INSIDE database node
+    if (position === 'inside' && isTargetDatabase) {
+      const targetDbPath = targetItem.node.path;
+      if (draggedPath) {
+        await moveNode(draggedPath, targetDbPath);
+        if (!expandedFolders.has(targetDbPath)) {
+          toggleFolder(targetDbPath);
+        }
+        setDraggedNode(null);
+        return;
+      }
+    }
+
+    // 2. Drop INSIDE folder
     if (position === 'inside' && isTargetFolder) {
       const targetFolderPath = targetItem.node.path;
 
-      if (draggedNode) {
-        if (draggedNode.path === targetFolderPath || targetFolderPath.startsWith(draggedNode.path + '/')) {
+      if (draggedPath) {
+        const { isRow: isDbRow } = parseDatabaseRowPath(draggedPath);
+        if (isDbRow) {
+          const newPath = await moveNode(draggedPath, targetFolderPath);
+          if (!expandedFolders.has(targetFolderPath)) {
+            toggleFolder(targetFolderPath);
+          }
+          if (newPath) {
+            const cleanNewName = newPath.split('/').pop()?.replace(/\.(md|txt)$/i, '') || '';
+            const currentKeys = getExistingKeysInParent(targetFolderPath).filter(k => 
+              k !== newPath && 
+              k !== draggedPath && 
+              k !== cleanNewName &&
+              k !== `${targetFolderPath}/${cleanNewName}`
+            );
+            currentKeys.push(newPath);
+            reorderNodes(targetFolderPath, currentKeys);
+          }
           setDraggedNode(null);
           return;
         }
-        const fileName = draggedNode.path.split('/').pop()!;
-        const oldParent = draggedNode.path.includes('/') ? draggedNode.path.split('/').slice(0, -1).join('/') : '';
+
+        const draggedName = draggedNode ? draggedNode.name : (draggedPath.split('/').pop()?.replace(/\.(md|txt)$/i, '') || '');
+        if (draggedPath === targetFolderPath || targetFolderPath.startsWith(draggedPath + '/')) {
+          setDraggedNode(null);
+          return;
+        }
+        const fileName = draggedPath.split('/').pop()!;
+        const oldParent = draggedPath.includes('/') ? draggedPath.split('/').slice(0, -1).join('/') : '';
         const newPath = `${targetFolderPath}/${fileName}`;
 
         if (oldParent !== targetFolderPath) {
-          await moveNode(draggedNode.path, targetFolderPath);
+          await moveNode(draggedPath, targetFolderPath);
         }
         if (!expandedFolders.has(targetFolderPath)) {
           toggleFolder(targetFolderPath);
         }
         const currentKeys = getExistingKeysInParent(targetFolderPath).filter(k => 
           k !== newPath && 
-          k !== draggedNode.path && 
-          k !== draggedNode.name &&
-          k !== `${targetFolderPath}/${draggedNode.name}`
+          k !== draggedPath && 
+          k !== draggedName &&
+          k !== `${targetFolderPath}/${draggedName}`
         );
         currentKeys.push(newPath);
         reorderNodes(targetFolderPath, currentKeys);
@@ -978,8 +1425,8 @@ export const VaultSidebar: React.FC = () => {
           const orderMap = getCustomOrder();
           if (orderMap[oldParent]) {
             orderMap[oldParent] = orderMap[oldParent].filter(k => 
-              k !== draggedNode.path && 
-              k !== draggedNode.name
+              k !== draggedPath && 
+              k !== draggedName
             );
             setCustomOrder(orderMap);
           }
@@ -1018,20 +1465,74 @@ export const VaultSidebar: React.FC = () => {
     // 2. Drop BEFORE or AFTER in parentPath
     const targetParent = parentPath;
 
-    if (draggedNode) {
-      const fileName = draggedNode.path.split('/').pop()!;
-      const oldParent = draggedNode.path.includes('/') ? draggedNode.path.split('/').slice(0, -1).join('/') : '';
+    if (draggedPath) {
+      const draggedName = draggedNode ? draggedNode.name : (draggedPath.split('/').pop()?.replace(/\.(md|txt)$/i, '') || '');
+      const { isRow: isDbRow, dbPath: parentDbPath } = parseDatabaseRowPath(draggedPath);
+      if (isDbRow) {
+        if (targetParent === parentDbPath) {
+          const currentKeys = getExistingKeysInParent(targetParent).filter(k => 
+            k !== draggedPath && 
+            k !== draggedName
+          );
+
+          let targetIdx = currentKeys.indexOf(targetItem.id);
+          if (targetIdx === -1) {
+            targetIdx = currentKeys.findIndex(k => 
+              k === targetItem.id.replace(/\.(md|txt)$/, '') || 
+              `${k}.md` === targetItem.id
+            );
+          }
+
+          const insertIdx = position === 'before'
+            ? (targetIdx !== -1 ? targetIdx : 0)
+            : (targetIdx !== -1 ? targetIdx + 1 : currentKeys.length);
+
+          currentKeys.splice(insertIdx, 0, draggedPath);
+          reorderNodes(targetParent, currentKeys);
+        } else {
+          const newPath = await moveNode(draggedPath, targetParent);
+          if (newPath) {
+            const cleanNewName = newPath.split('/').pop()?.replace(/\.(md|txt)$/i, '') || '';
+            const currentKeys = getExistingKeysInParent(targetParent).filter(k => 
+              k !== newPath && 
+              k !== draggedPath && 
+              k !== cleanNewName &&
+              k !== (targetParent ? `${targetParent}/${cleanNewName}` : cleanNewName)
+            );
+
+            let targetIdx = currentKeys.indexOf(targetItem.id);
+            if (targetIdx === -1) {
+              targetIdx = currentKeys.findIndex(k => 
+                k === targetItem.id.replace(/\.(md|txt)$/, '') || 
+                `${k}.md` === targetItem.id
+              );
+            }
+
+            const insertIdx = position === 'before'
+              ? (targetIdx !== -1 ? targetIdx : 0)
+              : (targetIdx !== -1 ? targetIdx + 1 : currentKeys.length);
+
+            currentKeys.splice(insertIdx, 0, newPath);
+            reorderNodes(targetParent, currentKeys);
+          }
+        }
+        setDraggedNode(null);
+        return;
+      }
+
+      const fileName = draggedPath.split('/').pop()!;
+      const oldParent = draggedPath.includes('/') ? draggedPath.split('/').slice(0, -1).join('/') : '';
       const newPath = targetParent ? `${targetParent}/${fileName}` : fileName;
 
       if (oldParent !== targetParent) {
-        await moveNode(draggedNode.path, targetParent);
+        await moveNode(draggedPath, targetParent);
       }
 
       const currentKeys = getExistingKeysInParent(targetParent).filter(k => 
-        k !== draggedNode.path && 
+        k !== draggedPath && 
         k !== newPath && 
-        k !== draggedNode.name &&
-        k !== (targetParent ? `${targetParent}/${draggedNode.name}` : draggedNode.name)
+        k !== draggedName &&
+        k !== (targetParent ? `${targetParent}/${draggedName}` : draggedName)
       );
 
       let targetIdx = currentKeys.indexOf(targetItem.id);
@@ -1053,8 +1554,8 @@ export const VaultSidebar: React.FC = () => {
         const orderMap = getCustomOrder();
         if (orderMap[oldParent]) {
           orderMap[oldParent] = orderMap[oldParent].filter(k => 
-            k !== draggedNode.path && 
-            k !== draggedNode.name
+            k !== draggedPath && 
+            k !== draggedName
           );
           setCustomOrder(orderMap);
         }
@@ -1106,27 +1607,59 @@ export const VaultSidebar: React.FC = () => {
       return;
     }
 
-    if (draggedNode) {
-      const fileName = draggedNode.path.split('/').pop()!;
-      const oldParent = draggedNode.path.includes('/') ? draggedNode.path.split('/').slice(0, -1).join('/') : '';
+    const noteDataRaw = e.dataTransfer.getData('application/rpgsa-vault-note');
+    const plainPath = e.dataTransfer.getData('text/plain');
+
+    let draggedPath = draggedNode ? draggedNode.path : '';
+    if (!draggedPath && noteDataRaw) {
+      try {
+        const parsed = JSON.parse(noteDataRaw);
+        draggedPath = parsed.path;
+      } catch {}
+    }
+    if (!draggedPath && plainPath && (plainPath.includes('/') || plainPath.includes('#row:'))) {
+      draggedPath = plainPath;
+    }
+
+    if (draggedPath) {
+      const { isRow: isDbRow } = parseDatabaseRowPath(draggedPath);
+      if (isDbRow) {
+        const newPath = await moveNode(draggedPath, '');
+        if (newPath) {
+          const cleanNewName = newPath.split('/').pop()?.replace(/\.(md|txt)$/i, '') || '';
+          const currentKeys = getExistingKeysInParent('').filter(k => 
+            k !== newPath && 
+            k !== draggedPath && 
+            k !== cleanNewName
+          );
+          currentKeys.push(newPath);
+          reorderNodes('', currentKeys);
+        }
+        setDraggedNode(null);
+        return;
+      }
+
+      const fileName = draggedPath.split('/').pop()!;
+      const oldParent = draggedPath.includes('/') ? draggedPath.split('/').slice(0, -1).join('/') : '';
       const newPath = fileName;
       if (oldParent !== '') {
-        await moveNode(draggedNode.path, '');
+        await moveNode(draggedPath, '');
       }
       const currentKeys = getExistingKeysInParent('').filter(k => 
-        k !== draggedNode.path && 
+        k !== draggedPath && 
         k !== newPath && 
-        k !== draggedNode.name
+        k !== (draggedNode ? draggedNode.name : '')
       );
       currentKeys.push(newPath);
       reorderNodes('', currentKeys);
 
       if (oldParent !== '') {
+        const draggedName = draggedNode ? draggedNode.name : (draggedPath.split('/').pop()?.replace(/\.(md|txt)$/i, '') || '');
         const orderMap = getCustomOrder();
         if (orderMap[oldParent]) {
           orderMap[oldParent] = orderMap[oldParent].filter(k => 
-            k !== draggedNode.path && 
-            k !== draggedNode.name
+            k !== draggedPath && 
+            k !== draggedName
           );
           setCustomOrder(orderMap);
         }
@@ -1163,7 +1696,7 @@ export const VaultSidebar: React.FC = () => {
     const isBoard = canvas.canvasType === 'board';
     const isCanvasActive = activePath === `canvas:${canvas.id}`;
     const canvasItemId = `canvas:${canvas.id}`;
-    const isCanvasSelected = selectedPath === canvasItemId || (!selectedPath && isCanvasActive);
+    const isCanvasSelected = selectedPaths.has(canvasItemId) || (!selectedPath && isCanvasActive);
     const isDropBefore = dropTarget?.id === canvasItemId && dropTarget.position === 'before';
     const isDropAfter = dropTarget?.id === canvasItemId && dropTarget.position === 'after';
 
@@ -1172,11 +1705,11 @@ export const VaultSidebar: React.FC = () => {
         key={`canvas-${canvas.id}`}
         tabIndex={0}
         draggable={true}
-        onFocus={() => {
-          setSelectedPath(canvasItemId);
-        }}
         onDragStart={(e) => {
           e.dataTransfer.setData('application/rpgsa-canvas', JSON.stringify({ id: canvas.id, name: canvas.name, canvasType: canvas.canvasType }));
+          if (selectedPaths.has(canvasItemId) && selectedPaths.size > 1) {
+            e.dataTransfer.setData('application/rpgsa-vault-multi-paths', JSON.stringify(Array.from(selectedPaths)));
+          }
           setDraggedCanvas(canvas);
           setDraggedNode(null);
         }}
@@ -1197,20 +1730,24 @@ export const VaultSidebar: React.FC = () => {
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          setSelectedPath(canvasItemId);
+          if (!selectedPaths.has(canvasItemId)) {
+            setSelectedPaths(new Set([canvasItemId]));
+            setLastSelectedPath(canvasItemId);
+          }
           setContextMenu({
             x: e.clientX,
             y: e.clientY,
             canvas,
           });
         }}
-        onClick={() => {
-          setSelectedPath(canvasItemId);
-          if (isBoard) {
-            openCanvasTab(canvas.id, canvas.name);
-          } else {
-            navigateToProject(router, canvas.id, canvas.name);
-          }
+        onClick={(e) => {
+          handleItemSelectClick(e, canvasItemId, () => {
+            if (isBoard) {
+              openCanvasTab(canvas.id, canvas.name);
+            } else {
+              navigateToProject(router, canvas.id, canvas.name);
+            }
+          });
         }}
         style={{ paddingLeft: `${depth * 14 + 12}px` }}
         className={`group relative flex items-center justify-between py-1.5 pr-2 rounded-lg cursor-pointer transition-all outline-none ${
@@ -1248,9 +1785,22 @@ export const VaultSidebar: React.FC = () => {
 
   const renderNode = (node: VaultNode, depth: number = 0, parentPath: string = '') => {
     const isFolder = node.type === 'folder';
+    const isDbRow = (node as DatabaseRowVaultNode).isDatabaseRow || parseDatabaseRowPath(node.path).isRow;
+    const isDatabaseNode =
+      !isDbRow &&
+      (node.fileType === 'database' ||
+        node.extension === 'database' ||
+        node.extension === 'db.json' ||
+        node.name.toLowerCase().endsWith('.db.json') ||
+        node.name.toLowerCase().endsWith('.database') ||
+        node.path.toLowerCase().endsWith('.db.json') ||
+        node.path.toLowerCase().endsWith('.database') ||
+        node.path.toLowerCase().endsWith('.db.json.md'));
+
+    const isExpandable = isFolder || isDatabaseNode;
     const isExpanded = expandedFolders.has(node.path);
     const isActive = activePath === node.path;
-    const isSelected = selectedPath === node.path || (!selectedPath && isActive);
+    const isSelected = selectedPaths.has(node.path) || (!selectedPath && isActive);
     const isDropBefore = dropTarget?.id === node.path && dropTarget.position === 'before';
     const isDropAfter = dropTarget?.id === node.path && dropTarget.position === 'after';
     const isDropInside = dropTarget?.id === node.path && dropTarget.position === 'inside';
@@ -1262,13 +1812,13 @@ export const VaultSidebar: React.FC = () => {
       >
         <div
           tabIndex={0}
-          onFocus={() => {
-            setSelectedPath(node.path);
-          }}
           draggable={true}
           onDragStart={(e) => {
             e.dataTransfer.setData('text/plain', node.path);
-            if (!isFolder) {
+            if (selectedPaths.has(node.path) && selectedPaths.size > 1) {
+              e.dataTransfer.setData('application/rpgsa-vault-multi-paths', JSON.stringify(Array.from(selectedPaths)));
+            }
+            if (!isFolder && !isDatabaseNode) {
               if (node.fileType === 'audio') {
                 e.dataTransfer.setData('application/rpgsa-vault-audio', JSON.stringify({
                   path: node.path,
@@ -1279,24 +1829,17 @@ export const VaultSidebar: React.FC = () => {
                   path: node.path,
                   name: node.name
                 }));
-              } else if (
-                node.fileType === 'database' ||
-                node.extension === 'database' ||
-                node.name.toLowerCase().endsWith('.database') ||
-                node.name.toLowerCase().endsWith('.db.json') ||
-                node.path.toLowerCase().endsWith('.database') ||
-                node.path.toLowerCase().endsWith('.db.json')
-              ) {
-                e.dataTransfer.setData('application/rpgsa-vault-database', JSON.stringify({
-                  path: node.path,
-                  name: node.name.replace(/\.(database|db\.json|db\.json\.md)$/i, '')
-                }));
               } else {
                 e.dataTransfer.setData('application/rpgsa-vault-note', JSON.stringify({
                   path: node.path,
                   name: node.name.replace(/\.(md|txt)$/, '')
                 }));
               }
+            } else if (isDatabaseNode) {
+              e.dataTransfer.setData('application/rpgsa-vault-database', JSON.stringify({
+                path: node.path,
+                name: node.name.replace(/\.(database|db\.json|db\.json\.md)$/i, '')
+              }));
             }
             setDraggedNode(node);
             setDraggedCanvas(null);
@@ -1316,20 +1859,27 @@ export const VaultSidebar: React.FC = () => {
             handleItemDrop(e, { kind: 'node', id: node.path, node }, parentPath);
           }}
           onContextMenu={(e) => {
-            setSelectedPath(node.path);
+            if (!selectedPaths.has(node.path)) {
+              setSelectedPaths(new Set([node.path]));
+              setLastSelectedPath(node.path);
+            }
             handleContextMenu(e, node);
           }}
-          onClick={() => {
-            setSelectedPath(node.path);
-            if (isFolder) {
-              toggleFolder(node.path);
-            } else {
-              openDocument(node.path);
-            }
+          onClick={(e) => {
+            handleItemSelectClick(e, node.path, () => {
+              if (isFolder) {
+                toggleFolder(node.path);
+              } else if (isDatabaseNode) {
+                if (!isExpanded) toggleFolder(node.path);
+                openDocument(node.path);
+              } else {
+                openDocument(node.path);
+              }
+            });
           }}
           style={{ paddingLeft: `${depth * 14 + 12}px` }}
           className={`group relative flex items-center justify-between py-1.5 pr-2 rounded-lg cursor-pointer transition-all outline-none ${
-            isDropInside && isFolder
+            isDropInside && (isFolder || isDatabaseNode)
               ? 'bg-[#1831D7]/20 ring-1 ring-[#1831D7] text-[#1831D7] dark:text-[#7F95FF] shadow-sm'
               : isSelected
                 ? 'bg-[#1831D7]/10 text-[#1831D7] dark:text-[#7F95FF] font-medium ring-1 ring-[#7F95FF]/50'
@@ -1348,8 +1898,14 @@ export const VaultSidebar: React.FC = () => {
           )}
 
           <div className={`flex gap-2 min-w-0 items-center ${renamingNodePath === node.path ? 'flex-1' : 'truncate'}`}>
-            {isFolder ? (
-              <span className="text-stone-400 dark:text-neutral-400">
+            {isExpandable ? (
+              <span 
+                className="text-stone-400 dark:text-neutral-400 hover:text-stone-700 dark:hover:text-neutral-200 cursor-pointer p-0.5 shrink-0"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleFolder(node.path);
+                }}
+              >
                 {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
               </span>
             ) : (
@@ -1362,14 +1918,14 @@ export const VaultSidebar: React.FC = () => {
               ) : (
                 <Folder className="w-4 h-4 text-[#1831D7]/80 dark:text-[#7F95FF]/80 shrink-0" />
               )
+            ) : isDatabaseNode ? (
+              <Database className="w-3.5 h-3.5 text-[#52B1FF] shrink-0" />
             ) : node.fileType === 'audio' ? (
               <Music className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400 shrink-0" />
             ) : node.fileType === 'image' ? (
               <ImageIcon className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
             ) : node.fileType === 'canvas' || node.extension === 'canvas' || node.name.toLowerCase().endsWith('.canvas') ? (
               <FolderKanban className="w-3.5 h-3.5 text-[#1831D7] dark:text-[#7F95FF] shrink-0" />
-            ) : node.fileType === 'database' || node.extension === 'database' || node.extension === 'db.json' || node.name.toLowerCase().endsWith('.db.json') || node.name.toLowerCase().endsWith('.database') || node.name.toLowerCase().endsWith('.db.json.md') || node.path.toLowerCase().endsWith('.db.json') || node.path.toLowerCase().endsWith('.database') || node.path.toLowerCase().endsWith('.db.json.md') ? (
-              <Database className="w-3.5 h-3.5 text-[#52B1FF] dark:text-[#52B1FF] shrink-0" />
             ) : node.fileType === 'file' ? (
               <File className="w-3.5 h-3.5 text-amber-600/80 dark:text-amber-400/80 shrink-0" />
             ) : (
@@ -1385,7 +1941,7 @@ export const VaultSidebar: React.FC = () => {
                       ? node.name.replace(/\.(md|txt)$/i, '')
                       : (node.fileType === 'canvas' || node.extension === 'canvas' || node.name.toLowerCase().endsWith('.canvas'))
                         ? node.name.replace(/\.canvas$/i, '')
-                        : (node.fileType === 'database' || node.extension === 'db.json' || node.name.toLowerCase().endsWith('.db.json') || node.name.toLowerCase().endsWith('.database') || node.name.toLowerCase().endsWith('.db.json.md'))
+                        : isDatabaseNode
                           ? node.name.replace(/\.(db\.json\.md|db\.json|database)$/i, '')
                           : (() => {
                               const lastDot = node.name.lastIndexOf('.');
@@ -1398,19 +1954,35 @@ export const VaultSidebar: React.FC = () => {
               />
             ) : (
               <span className="truncate text-xs">
-                {node.fileType === 'note' || (!node.fileType && (node.name.endsWith('.md') || node.name.endsWith('.txt')))
-                  ? node.name.replace(/\.(md|txt)$/i, '')
-                  : (node.fileType === 'canvas' || node.extension === 'canvas' || node.name.toLowerCase().endsWith('.canvas'))
-                    ? node.name.replace(/\.canvas$/i, '')
-                    : (node.fileType === 'database' || node.extension === 'db.json' || node.name.toLowerCase().endsWith('.db.json') || node.name.toLowerCase().endsWith('.database') || node.name.toLowerCase().endsWith('.db.json.md'))
-                      ? node.name.replace(/\.(db\.json\.md|db\.json|database)$/i, '')
+                {isDatabaseNode
+                  ? node.name.replace(/\.(db\.json\.md|db\.json|database)$/i, '')
+                  : (node.fileType === 'note' || (!node.fileType && (node.name.endsWith('.md') || node.name.endsWith('.txt'))))
+                    ? node.name.replace(/\.(md|txt)$/i, '')
+                    : (node.fileType === 'canvas' || node.extension === 'canvas' || node.name.toLowerCase().endsWith('.canvas'))
+                      ? node.name.replace(/\.canvas$/i, '')
                       : node.name}
               </span>
             )}
           </div>
+
+          {/* Botão de adicionar nota rápida ao passar o mouse em um nó de Banco de Dados */}
+          {isDatabaseNode && (
+            <button
+              type="button"
+              title="Nova Nota neste Banco de Dados"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!isExpanded) toggleFolder(node.path);
+                setNewFileInputFolder(node.path);
+              }}
+              className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-stone-200 dark:hover:bg-white/10 text-stone-500 hover:text-stone-900 dark:text-neutral-400 dark:hover:text-neutral-100 transition-opacity"
+            >
+              <FilePlus className="w-3.5 h-3.5 text-[#7F95FF]" />
+            </button>
+          )}
         </div>
 
-        {/* Inputs for inline file/folder creation */}
+        {/* Inputs for inline file/folder creation in Folders */}
         {isFolder && isExpanded && (
           <div>
             {newFileInputFolder === node.path && (
@@ -1434,6 +2006,30 @@ export const VaultSidebar: React.FC = () => {
               />
             )}
             {renderTreeItems(node.path, node.children || [], depth + 1)}
+          </div>
+        )}
+
+        {/* Child Row Notes for Database Nodes */}
+        {isDatabaseNode && isExpanded && (
+          <div>
+            {newFileInputFolder === node.path && (
+              <div style={{ paddingLeft: `${(depth + 1) * 14 + 12}px` }} className="py-1 pr-2">
+                <InlineRenameInput
+                  initialName=""
+                  placeholder="Nome da nota no DB..."
+                  onSubmit={(name) => handleCreateFileSubmit(node.path, name)}
+                  onCancel={() => setNewFileInputFolder(null)}
+                />
+              </div>
+            )}
+            {(() => {
+              if (dbRowsCache[node.path] === undefined) {
+                loadDatabaseRows(node.path);
+              }
+              return (dbRowsCache[node.path] || []).map((rowNode) =>
+                renderNode(rowNode, depth + 1, node.path)
+              );
+            })()}
           </div>
         )}
       </div>
@@ -1479,6 +2075,78 @@ export const VaultSidebar: React.FC = () => {
   const getContextMenuOptions = () => {
     if (!contextMenu) return [];
 
+    if (selectedPaths.size > 1) {
+      return [
+        {
+          label: `Excluir (${selectedPaths.size} itens)`,
+          icon: <Trash2 size={16} className="text-stone-700 dark:text-neutral-200" />,
+          onClick: () => {
+            triggerDeleteSelected();
+          }
+        },
+        {
+          label: `Mover ${selectedPaths.size} itens para...`,
+          icon: <FolderInput size={16} className="text-stone-700 dark:text-neutral-200" />,
+          onClick: () => {},
+          subMenu: [
+            {
+              label: 'Raiz do Vault',
+              onClick: async () => {
+                for (const path of Array.from(selectedPaths)) {
+                  if (path.startsWith('canvas:')) {
+                    const canvasId = path.replace('canvas:', '');
+                    const c = allCanvases.find(item => item.id === canvasId);
+                    if (c && c.folderPath !== '') {
+                      const oldFolder = c.folderPath;
+                      updateLayer({ ...c, folderPath: '' });
+                      if (c.canvasType === 'board') {
+                        await moveCanvasOnDisk(provider, oldFolder, '', c.name, () => getBoardDataFromStorage(c.id));
+                      }
+                    }
+                  } else {
+                    await moveNode(path, '');
+                  }
+                }
+                refreshNodes();
+              }
+            },
+            ...allFolders.map(folder => ({
+              label: folder,
+              onClick: async () => {
+                for (const path of Array.from(selectedPaths)) {
+                  if (path.startsWith('canvas:')) {
+                    const canvasId = path.replace('canvas:', '');
+                    const c = allCanvases.find(item => item.id === canvasId);
+                    if (c && c.folderPath !== folder) {
+                      const oldFolder = c.folderPath;
+                      updateLayer({ ...c, folderPath: folder });
+                      if (c.canvasType === 'board') {
+                        await moveCanvasOnDisk(provider, oldFolder, folder, c.name, () => getBoardDataFromStorage(c.id));
+                      }
+                    }
+                  } else {
+                    await moveNode(path, folder);
+                  }
+                }
+                if (!expandedFolders.has(folder)) {
+                  toggleFolder(folder);
+                }
+                refreshNodes();
+              }
+            }))
+          ]
+        },
+        {
+          label: 'Desmarcar Seleção',
+          icon: <X size={16} className="text-stone-400" />,
+          onClick: () => {
+            setSelectedPaths(new Set());
+            setLastSelectedPath(null);
+          }
+        }
+      ];
+    }
+
     // Context menu on Canvas item
     if (contextMenu.canvas) {
       const c = contextMenu.canvas;
@@ -1486,7 +2154,7 @@ export const VaultSidebar: React.FC = () => {
       return [
         {
           label: isBoard ? 'Abrir no Vault' : 'Abrir Canvas',
-          icon: isBoard ? <FolderKanban size={16} className="text-[#7F95FF]" /> : <Music size={16} className="text-cyan-400" />,
+          icon: isBoard ? <FolderKanban size={16} className="text-stone-700 dark:text-neutral-200" /> : <Music size={16} className="text-stone-700 dark:text-neutral-200" />,
           onClick: () => {
             if (isBoard) {
               openCanvasTab(c.id, c.name);
@@ -1497,7 +2165,7 @@ export const VaultSidebar: React.FC = () => {
         },
         ...(c.folderPath ? [{
           label: 'Mover para a Caixa de Canvas Gerais',
-          icon: <Box size={16} className="text-amber-400" />,
+          icon: <Box size={16} className="text-stone-700 dark:text-neutral-200" />,
           onClick: () => {
             const oldFolder = c.folderPath;
             updateLayer({ ...c, folderPath: null });
@@ -1511,7 +2179,7 @@ export const VaultSidebar: React.FC = () => {
         }] : []),
         {
           label: 'Mover para Pasta...',
-          icon: <FolderInput size={16} className="text-[#7F95FF]" />,
+          icon: <FolderInput size={16} className="text-stone-700 dark:text-neutral-200" />,
           onClick: () => {},
           subMenu: [
             ...(c.folderPath ? [{
@@ -1562,14 +2230,14 @@ export const VaultSidebar: React.FC = () => {
         },
         {
           label: 'Renomear Canvas',
-          icon: <Edit2 size={16} className="text-cyan-400" />,
+          icon: <Edit2 size={16} className="text-stone-700 dark:text-neutral-200" />,
           onClick: () => {
             setPromptModal({
               title: 'Renomear Canvas',
               description: 'Digite o novo nome para o canvas:',
               defaultValue: c.name,
               confirmText: 'Salvar',
-              icon: <Edit2 className="w-5 h-5 text-cyan-400" />,
+              icon: <Edit2 className="w-5 h-5 text-stone-700 dark:text-neutral-200" />,
               onConfirm: async (newName) => {
                 const trimmed = newName?.trim();
                 if (trimmed && trimmed !== c.name) {
@@ -1595,7 +2263,7 @@ export const VaultSidebar: React.FC = () => {
         },
         {
           label: 'Excluir Canvas',
-          icon: <Trash2 size={16} className="text-red-400" />,
+          icon: <Trash2 size={16} className="text-stone-700 dark:text-neutral-200" />,
           onClick: () => {
             triggerDeleteSelected(`canvas:${c.id}`);
           }
@@ -1608,7 +2276,7 @@ export const VaultSidebar: React.FC = () => {
       return [
         {
           label: 'Nova Nota',
-          icon: <FilePlus size={16} className="text-[#7F95FF]" />,
+          icon: <FilePlus size={16} className="text-stone-700 dark:text-neutral-200" />,
           onClick: async () => {
             try {
               await createFile('');
@@ -1619,28 +2287,28 @@ export const VaultSidebar: React.FC = () => {
         },
         {
           label: 'Salvar Áudio ou Imagem...',
-          icon: <Upload size={16} className="text-cyan-400" />,
+          icon: <Upload size={16} className="text-stone-700 dark:text-neutral-200" />,
           onClick: () => {
             triggerMediaUpload('');
           }
         },
         {
           label: 'Novo Canvas de Conexões',
-          icon: <FolderKanban size={16} className="text-[#7F95FF]" />,
+          icon: <FolderKanban size={16} className="text-stone-700 dark:text-neutral-200" />,
           onClick: () => {
             handleCreateBoardCanvas();
           }
         },
         {
           label: 'Novo Canvas de Áudio',
-          icon: <Music size={16} className="text-cyan-400" />,
+          icon: <Music size={16} className="text-stone-700 dark:text-neutral-200" />,
           onClick: () => {
             handleCreateAudioCanvas();
           }
         },
         {
           label: 'Nova Base de Dados',
-          icon: <Database size={16} className="text-[#52B1FF]" />,
+          icon: <Database size={16} className="text-stone-700 dark:text-neutral-200" />,
           onClick: async () => {
             try {
               await useVaultStore.getState().createDatabase('');
@@ -1651,35 +2319,35 @@ export const VaultSidebar: React.FC = () => {
         },
         {
           label: 'Nova Pasta',
-          icon: <FolderPlus size={16} className="text-[#7F95FF]" />,
+          icon: <FolderPlus size={16} className="text-stone-700 dark:text-neutral-200" />,
           onClick: () => {
             handleStartCreateFolder('');
           }
         },
         {
           label: 'Criar a partir de Template',
-          icon: <LayoutTemplate size={16} className="text-amber-400" />,
+          icon: <LayoutTemplate size={16} className="text-stone-700 dark:text-neutral-200" />,
           onClick: () => {
             setTemplateModalOpen(true);
           }
         },
         {
           label: 'Recarregar Arquivos',
-          icon: <RefreshCw size={16} className="text-neutral-400" />,
+          icon: <RefreshCw size={16} className="text-stone-700 dark:text-neutral-200" />,
           onClick: () => {
             refreshNodes();
           }
         },
         {
           label: 'Renomear Vault',
-          icon: <Edit2 size={16} className="text-[#7F95FF]" />,
+          icon: <Edit2 size={16} className="text-stone-700 dark:text-neutral-200" />,
           onClick: () => {
             setPromptModal({
               title: 'Renomear Vault',
               description: 'Digite o novo nome para o Vault:',
               defaultValue: vaultName,
               confirmText: 'Salvar',
-              icon: <Edit2 className="w-5 h-5 text-[#7F95FF]" />,
+              icon: <Edit2 className="w-5 h-5 text-stone-700 dark:text-neutral-200" />,
               onConfirm: (newName) => {
                 if (newName && newName.trim() && newName.trim() !== vaultName) {
                   setVaultName(newName.trim());
@@ -1702,28 +2370,141 @@ export const VaultSidebar: React.FC = () => {
 
     if (node.type === 'file') {
       const currentParent = node.path.includes('/') ? node.path.split('/').slice(0, -1).join('/') : '';
-      const isMedia = node.fileType === 'audio' || node.fileType === 'image';
-      const isNote = node.fileType === 'note' || (!node.fileType && (node.name.endsWith('.md') || node.name.endsWith('.txt')));
+      const isDbRow = (node as DatabaseRowVaultNode).isDatabaseRow || parseDatabaseRowPath(node.path).isRow;
+      const isDb = node.fileType === 'database' || node.extension === 'database' || node.name.endsWith('.database') || node.name.endsWith('.db.json');
 
-      if (isMedia || (!isNote && node.fileType === 'file')) {
+      if (isDbRow) {
         return [
           {
-            label: node.fileType === 'audio' ? 'Abrir Áudio' : node.fileType === 'image' ? 'Visualizar Imagem' : 'Abrir Arquivo',
-            icon: node.fileType === 'audio' ? <Music size={16} className="text-cyan-400" /> : node.fileType === 'image' ? <ImageIcon size={16} className="text-emerald-400" /> : <File size={16} className="text-amber-500" />,
+            label: 'Abrir Nota',
+            icon: <FileText size={16} className="text-stone-700 dark:text-neutral-200" />,
             onClick: () => {
               openDocument(node.path);
             }
           },
           {
+            label: 'Adicionar ao Canvas Ativo',
+            icon: <FolderKanban size={16} className="text-stone-700 dark:text-neutral-200" />,
+            onClick: () => {
+              window.dispatchEvent(
+                new CustomEvent('add_vault_item_to_board', {
+                  detail: {
+                    type: 'note',
+                    path: node.path,
+                    name: node.name,
+                  }
+                })
+              );
+            }
+          },
+          {
+            label: 'Renomear Nota',
+            icon: <Edit2 size={16} className="text-stone-700 dark:text-neutral-200" />,
+            onClick: () => {
+              setRenamingNodePath(node.path);
+            }
+          },
+          {
+            label: 'Excluir Nota',
+            icon: <Trash2 size={16} className="text-stone-700 dark:text-neutral-200" />,
+            onClick: () => {
+              setSelectedPath(node.path);
+              triggerDeleteSelected(node.path);
+            }
+          }
+        ];
+      }
+
+      if (isDb) {
+        return [
+          {
+            label: 'Nova Nota no DB',
+            icon: <FilePlus size={16} className="text-stone-700 dark:text-neutral-200" />,
+            onClick: () => {
+              if (!expandedFolders.has(node.path)) {
+                toggleFolder(node.path);
+              }
+              setNewFileInputFolder(node.path);
+            }
+          },
+          {
+            label: 'Abrir Base de Dados',
+            icon: <Database size={16} className="text-stone-700 dark:text-neutral-200" />,
+            onClick: () => {
+              openDocument(node.path);
+            }
+          },
+          {
+            label: 'Adicionar ao Canvas Ativo',
+            icon: <FolderKanban size={16} className="text-stone-700 dark:text-neutral-200" />,
+            onClick: () => {
+              window.dispatchEvent(
+                new CustomEvent('add_vault_item_to_board', {
+                  detail: {
+                    type: 'database',
+                    path: node.path,
+                    name: node.name.replace(/\.(database|db\.json|db\.json\.md)$/i, ''),
+                  }
+                })
+              );
+            }
+          },
+          {
+            label: 'Renomear DB',
+            icon: <Edit2 size={16} className="text-stone-700 dark:text-neutral-200" />,
+            onClick: () => {
+              setRenamingNodePath(node.path);
+            }
+          },
+          {
+            label: 'Excluir DB',
+            icon: <Trash2 size={16} className="text-stone-700 dark:text-neutral-200" />,
+            onClick: () => {
+              setSelectedPath(node.path);
+              triggerDeleteSelected(node.path);
+            }
+          }
+        ];
+      }
+
+      const isMedia = node.fileType === 'audio' || node.fileType === 'image';
+      const isNote = node.fileType === 'note' || (!node.fileType && (node.name.endsWith('.md') || node.name.endsWith('.txt')));
+
+      if (isMedia || (!isNote && node.fileType === 'file')) {
+        const isDb = node.fileType === 'database' || node.extension === 'database' || node.name.endsWith('.database') || node.name.endsWith('.db.json');
+        return [
+          {
+            label: node.fileType === 'audio' ? 'Abrir Áudio' : node.fileType === 'image' ? 'Visualizar Imagem' : 'Abrir Arquivo',
+            icon: node.fileType === 'audio' ? <Music size={16} className="text-stone-700 dark:text-neutral-200" /> : node.fileType === 'image' ? <ImageIcon size={16} className="text-stone-700 dark:text-neutral-200" /> : <File size={16} className="text-stone-700 dark:text-neutral-200" />,
+            onClick: () => {
+              openDocument(node.path);
+            }
+          },
+          {
+            label: 'Adicionar ao Canvas Ativo',
+            icon: <FolderKanban size={16} className="text-stone-700 dark:text-neutral-200" />,
+            onClick: () => {
+              window.dispatchEvent(
+                new CustomEvent('add_vault_item_to_board', {
+                  detail: {
+                    type: isDb ? 'database' : 'note',
+                    path: node.path,
+                    name: node.name.replace(/\.(database|db\.json|db\.json\.md)$/i, ''),
+                  }
+                })
+              );
+            }
+          },
+          {
             label: 'Renomear Arquivo',
-            icon: <Edit2 size={16} className="text-[#7F95FF]" />,
+            icon: <Edit2 size={16} className="text-stone-700 dark:text-neutral-200" />,
             onClick: () => {
               setRenamingNodePath(node.path);
             }
           },
           {
             label: 'Mover para...',
-            icon: <FolderInput size={16} className="text-amber-400" />,
+            icon: <FolderInput size={16} className="text-stone-700 dark:text-neutral-200" />,
             onClick: () => {},
             subMenu: [
               ...(currentParent ? [{
@@ -1740,7 +2521,7 @@ export const VaultSidebar: React.FC = () => {
           },
           {
             label: 'Excluir Arquivo',
-            icon: <Trash2 size={16} className="text-red-400" />,
+            icon: <Trash2 size={16} className="text-stone-700 dark:text-neutral-200" />,
             onClick: () => {
               setSelectedPath(node.path);
               triggerDeleteSelected(node.path);
@@ -1752,21 +2533,43 @@ export const VaultSidebar: React.FC = () => {
       return [
         {
           label: 'Abrir Nota',
-          icon: <FileText size={16} className="text-[#7F95FF]" />,
+          icon: <FileText size={16} className="text-stone-700 dark:text-neutral-200" />,
           onClick: () => {
             openDocument(node.path);
           }
         },
         {
+          label: 'Adicionar ao Canvas Ativo',
+          icon: <FolderKanban size={16} className="text-stone-700 dark:text-neutral-200" />,
+          onClick: async () => {
+            let content = '';
+            try {
+              content = (await provider?.readDocument(node.path)) || '';
+            } catch (err) {
+              console.warn('Erro ao ler nota para adicionar ao canvas:', err);
+            }
+            window.dispatchEvent(
+              new CustomEvent('add_vault_item_to_board', {
+                detail: {
+                  type: 'note',
+                  path: node.path,
+                  name: node.name.replace(/\.(md|txt)$/i, ''),
+                  content,
+                }
+              })
+            );
+          }
+        },
+        {
           label: 'Renomear Nota',
-          icon: <Edit2 size={16} className="text-[#7F95FF]" />,
+          icon: <Edit2 size={16} className="text-stone-700 dark:text-neutral-200" />,
           onClick: () => {
             setRenamingNodePath(node.path);
           }
         },
         {
           label: 'Tornar Template',
-          icon: <BookmarkPlus size={16} className="text-emerald-400" />,
+          icon: <BookmarkPlus size={16} className="text-stone-700 dark:text-neutral-200" />,
           onClick: async () => {
             const content = await provider?.readDocument(node.path) || '';
             saveUserTemplate({
@@ -1779,7 +2582,7 @@ export const VaultSidebar: React.FC = () => {
         },
         {
           label: 'Copiar [[Wikilink]]',
-          icon: <Copy size={16} className="text-cyan-400" />,
+          icon: <Copy size={16} className="text-stone-700 dark:text-neutral-200" />,
           onClick: () => {
             const wikilink = `[[${node.name.replace(/\.md$/, '')}]]`;
             navigator.clipboard.writeText(wikilink);
@@ -1787,7 +2590,7 @@ export const VaultSidebar: React.FC = () => {
         },
         {
           label: 'Mover para...',
-          icon: <FolderInput size={16} className="text-amber-400" />,
+          icon: <FolderInput size={16} className="text-stone-700 dark:text-neutral-200" />,
           onClick: () => {},
           subMenu: [
             ...(currentParent ? [{
@@ -1804,7 +2607,7 @@ export const VaultSidebar: React.FC = () => {
         },
         {
           label: 'Excluir Nota',
-          icon: <Trash2 size={16} className="text-red-400" />,
+          icon: <Trash2 size={16} className="text-stone-700 dark:text-neutral-200" />,
           onClick: () => {
             setSelectedPath(node.path);
             triggerDeleteSelected(node.path);
@@ -1815,7 +2618,7 @@ export const VaultSidebar: React.FC = () => {
       return [
         {
           label: 'Nova Nota nesta pasta',
-          icon: <FilePlus size={16} className="text-[#7F95FF]" />,
+          icon: <FilePlus size={16} className="text-stone-700 dark:text-neutral-200" />,
           onClick: async () => {
             try {
               await createFile(node.path);
@@ -1826,28 +2629,28 @@ export const VaultSidebar: React.FC = () => {
         },
         {
           label: 'Salvar Áudio ou Imagem nesta pasta',
-          icon: <Upload size={16} className="text-cyan-400" />,
+          icon: <Upload size={16} className="text-stone-700 dark:text-neutral-200" />,
           onClick: () => {
             triggerMediaUpload(node.path);
           }
         },
         {
           label: 'Novo Canvas de Conexões nesta pasta',
-          icon: <FolderKanban size={16} className="text-[#7F95FF]" />,
+          icon: <FolderKanban size={16} className="text-stone-700 dark:text-neutral-200" />,
           onClick: () => {
             handleCreateBoardCanvas(node.path);
           }
         },
         {
           label: 'Novo Canvas de Áudio nesta pasta',
-          icon: <Music size={16} className="text-cyan-400" />,
+          icon: <Music size={16} className="text-stone-700 dark:text-neutral-200" />,
           onClick: () => {
             handleCreateAudioCanvas(node.path);
           }
         },
         {
           label: 'Nova Base de Dados nesta pasta',
-          icon: <Database size={16} className="text-[#52B1FF]" />,
+          icon: <Database size={16} className="text-stone-700 dark:text-neutral-200" />,
           onClick: async () => {
             try {
               await useVaultStore.getState().createDatabase(node.path);
@@ -1858,21 +2661,21 @@ export const VaultSidebar: React.FC = () => {
         },
         {
           label: 'Nova Subpasta',
-          icon: <FolderPlus size={16} className="text-[#7F95FF]" />,
+          icon: <FolderPlus size={16} className="text-stone-700 dark:text-neutral-200" />,
           onClick: () => {
             handleStartCreateFolder(node.path);
           }
         },
         {
           label: 'Renomear Pasta',
-          icon: <Edit2 size={16} className="text-cyan-400" />,
+          icon: <Edit2 size={16} className="text-stone-700 dark:text-neutral-200" />,
           onClick: () => {
             setRenamingNodePath(node.path);
           }
         },
         {
           label: 'Excluir Pasta',
-          icon: <Trash2 size={16} className="text-red-400" />,
+          icon: <Trash2 size={16} className="text-stone-700 dark:text-neutral-200" />,
           onClick: () => {
             setSelectedPath(node.path);
             triggerDeleteSelected(node.path);
@@ -1901,11 +2704,19 @@ export const VaultSidebar: React.FC = () => {
           onCreateAudioCanvas={handleCreateAudioCanvas}
           selectedPath={selectedPath}
           onSelectPath={setSelectedPath}
+          selectedPaths={selectedPaths}
+          onSelectPaths={(paths, lastPath) => {
+            setSelectedPaths(paths);
+            if (lastPath !== undefined) {
+              setLastSelectedPath(lastPath);
+            }
+          }}
+          lastSelectedPath={lastSelectedPath}
         />
       ) : (
         <>
           {/* Sidebar Header: Search */}
-          <div className="p-2.5 border-b border-stone-200/90 dark:border-white/10 bg-white/70 dark:bg-white/[0.02]">
+          <div className="p-2.5 border-b border-stone-200/90 dark:border-white/10 bg-white/70 dark:bg-white/[0.02] flex flex-col gap-2">
             {/* Search */}
             <div className="relative">
               <Search className="w-3.5 h-3.5 text-stone-400 dark:text-neutral-500 absolute left-2.5 top-2.5" />
@@ -1938,7 +2749,13 @@ export const VaultSidebar: React.FC = () => {
           }
         }}
         onDragOver={(e) => {
-          if (draggedNode || draggedCanvas || e.dataTransfer.types.includes('Files')) {
+          if (
+            draggedNode ||
+            draggedCanvas ||
+            e.dataTransfer.types.includes('Files') ||
+            e.dataTransfer.types.includes('application/rpgsa-vault-note') ||
+            e.dataTransfer.types.includes('text/plain')
+          ) {
             e.preventDefault();
           }
         }}
@@ -2079,23 +2896,34 @@ export const VaultSidebar: React.FC = () => {
         itemPath={deleteTarget?.path}
         isFolder={deleteTarget?.isFolder}
         itemType={deleteTarget?.itemType}
+        itemCount={deleteTarget?.path === '__BATCH__' ? selectedPaths.size : 1}
         onClose={() => setDeleteTarget(null)}
         onConfirm={async () => {
           if (deleteTarget) {
+            if (deleteTarget.path === '__BATCH__') {
+              await handleBatchDelete(Array.from(selectedPaths));
+              setDeleteTarget(null);
+              return;
+            }
             if (deleteTarget.itemType === 'canvas' && deleteTarget.canvasId) {
               const c = allCanvases.find(item => item.id === deleteTarget.canvasId);
-              if (c && c.canvasType === 'board') {
+              if (c && c.canvasType === 'board' && provider) {
                 await deleteCanvasFromDisk(provider, c.folderPath, c.name);
                 refreshNodes();
               }
               deleteLayer(deleteTarget.canvasId);
               closeTab(`canvas:${deleteTarget.canvasId}`);
+              if (deleteTarget.path) {
+                closeTab(deleteTarget.path);
+              }
             } else {
               await deleteNode(deleteTarget.path, deleteTarget.isFolder);
             }
-            if (selectedPath === deleteTarget.path) {
-              setSelectedPath(null);
-            }
+            setSelectedPaths(prev => {
+              const next = new Set(prev);
+              next.delete(deleteTarget.path);
+              return next;
+            });
             setDeleteTarget(null);
           }
         }}

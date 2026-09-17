@@ -1,8 +1,9 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { SafeIcon } from '@/components/common/SafeIcon';
 import { Edit2, Check, Settings, ChevronDown, Plus } from 'lucide-react';
 import { RegisteredVault } from '@/modules/vault/hooks/useVaultRegistry';
 import clsx from 'clsx';
+import { useClickOutside } from '@/hooks/useClickOutside';
 
 export interface VaultMenuPopoverProps {
   isOpen: boolean;
@@ -38,19 +39,16 @@ export const VaultMenuPopover: React.FC<VaultMenuPopoverProps> = ({
     setNameInput(vaultName);
   }, [vaultName]);
 
-  // Click outside to close
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
-        onClose();
-        setVaultsDropdownOpen(false);
-        setIsEditingName(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isOpen, onClose]);
+  // Click outside / interaction to close
+  useClickOutside({
+    ref: popoverRef,
+    onClose: () => {
+      onClose();
+      setVaultsDropdownOpen(false);
+      setIsEditingName(false);
+    },
+    enabled: isOpen,
+  });
 
   const handleSave = async () => {
     const trimmed = nameInput.trim();
@@ -65,7 +63,7 @@ export const VaultMenuPopover: React.FC<VaultMenuPopoverProps> = ({
   return (
     <div 
       ref={popoverRef}
-      className="absolute left-10 top-0 w-72 bg-white dark:bg-[#16161D] border border-stone-200 dark:border-white/10 rounded-xl shadow-2xl p-3 z-50 animate-in fade-in zoom-in-95 duration-150 flex flex-col gap-2.5 text-stone-900 dark:text-neutral-100"
+      className="absolute left-10 top-0 w-72 bg-white dark:bg-[#16161D] border border-stone-200 dark:border-white/10 rounded-lg shadow-2xl p-3 z-50 animate-in fade-in zoom-in-95 duration-150 flex flex-col gap-2.5 text-stone-900 dark:text-neutral-100"
     >
       <div className="flex items-center justify-between pb-2 border-b border-stone-100 dark:border-white/5">
         <span className="flex items-center gap-1.5 text-[10px] uppercase font-bold tracking-wider text-stone-400 dark:text-neutral-500">

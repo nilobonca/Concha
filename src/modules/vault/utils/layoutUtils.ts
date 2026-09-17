@@ -156,20 +156,50 @@ export function isTabPathMatch(
   const cleanTargetCanvasId = targetIsCanvas ? normTarget.replace('canvas:', '') : normTarget;
 
   if (tabIsCanvas || targetIsCanvas || tabCanvasId) {
-    if (tabCanvasId && tabCanvasId.toLowerCase() === cleanTargetCanvasId) return true;
-    if (cleanTabCanvasId === cleanTargetCanvasId) return true;
+    if (tabCanvasId && (tabCanvasId.toLowerCase() === cleanTargetCanvasId || tabCanvasId.toLowerCase() === cleanTabCanvasId)) return true;
+    if (tabIsCanvas && targetIsCanvas && cleanTabCanvasId === cleanTargetCanvasId) return true;
+    if ((tabIsCanvas || targetIsCanvas) && cleanTabCanvasId === cleanTargetCanvasId) return true;
+  }
+
+  // Verificação de notas virtuais de banco de dados (db:path/rowId) vs notas físicas de banco
+  const tabIsDb = normTab.startsWith('db:');
+  const targetIsDb = normTarget.startsWith('db:');
+  if (tabIsDb && targetIsDb) {
+    if (normTab === normTarget) return true;
+  }
+  if (tabIsDb !== targetIsDb) {
+    const dbPath = tabIsDb ? normTab : normTarget;
+    const otherPath = tabIsDb ? normTarget : normTab;
+    const parts = dbPath.replace('db:', '').split('/');
+    if (parts.length >= 2) {
+      const rowId = parts[parts.length - 1];
+      if (rowId && otherPath.includes(rowId.toLowerCase())) return true;
+    }
   }
 
   if (isFolder) {
-    return normTab === normTarget || normTab.startsWith(`${normTarget}/`);
+    return (
+      normTab === normTarget ||
+      normTab.startsWith(`${normTarget}/`) ||
+      normTab.endsWith(`/${normTarget}`) ||
+      normTab.includes(`/${normTarget}/`)
+    );
   }
 
   if (normTab === normTarget) return true;
 
+  // Comparação de sufixo de caminho (ex: caminho absoluto vs relativo)
+  if (normTab.endsWith(`/${normTarget}`) || normTarget.endsWith(`/${normTab}`)) {
+    return true;
+  }
+
   // Comparação ignorando extensão de arquivo (.md, .txt, etc.)
   const tabNoExt = normTab.replace(/\.[^/.]+$/, '');
   const targetNoExt = normTarget.replace(/\.[^/.]+$/, '');
-  return tabNoExt === targetNoExt;
+  if (tabNoExt === targetNoExt) return true;
+  if (tabNoExt.endsWith(`/${targetNoExt}`) || targetNoExt.endsWith(`/${tabNoExt}`)) return true;
+
+  return false;
 }
 
 /**

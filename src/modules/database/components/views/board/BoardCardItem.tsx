@@ -17,6 +17,7 @@ export interface BoardCardItemProps {
   onOpenPeek?: (rowId: string) => void;
   onUpdateProperty: (rowId: string, propertyId: string, value: any) => void;
   onDragStart?: (e: React.DragEvent, rowId: string) => void;
+  onContextMenu?: (e: React.MouseEvent, row: DatabaseRow) => void;
 }
 
 export const BoardCardItem: React.FC<BoardCardItemProps> = ({
@@ -28,6 +29,7 @@ export const BoardCardItem: React.FC<BoardCardItemProps> = ({
   onOpenPeek,
   onUpdateProperty,
   onDragStart,
+  onContextMenu,
 }) => {
   // Determine cover image
   let coverImageSrc = row.coverImage;
@@ -59,6 +61,11 @@ export const BoardCardItem: React.FC<BoardCardItemProps> = ({
       draggable={Boolean(onDragStart)}
       onDragStart={(e) => onDragStart?.(e, row.id)}
       onClick={handleCardClick}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onContextMenu?.(e, row);
+      }}
       className="group relative bg-white dark:bg-[#1E2238] rounded-xl border border-stone-200 dark:border-white/10 hover:border-[#52B1FF] dark:hover:border-[#52B1FF] shadow-xs hover:shadow-md transition-all cursor-pointer overflow-hidden select-none p-3 space-y-2.5"
     >
       {/* Cover Image */}

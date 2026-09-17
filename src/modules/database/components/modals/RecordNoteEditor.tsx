@@ -14,6 +14,9 @@ import { Callout } from '@/modules/vault/extensions/CalloutExtension';
 import { MarkdownSyntaxReveal } from '@/modules/vault/extensions/MarkdownSyntaxRevealExtension';
 import { FormattingShortcutsExtension } from '@/modules/vault/extensions/FormattingShortcutsExtension';
 import { markdownToHtml, htmlToMarkdown } from '@/modules/vault/utils/markdownConverter';
+import { SlashMenu, useSlashMenu } from '@/modules/common/components/SlashMenu';
+
+import type { Editor } from '@tiptap/react';
 
 const lowlight = createLowlight(common);
 
@@ -22,17 +25,25 @@ export interface RecordNoteEditorProps {
   onChange: (newContentMarkdown: string) => void;
   placeholder?: string;
   readOnly?: boolean;
+  onEditorReady?: (editor: Editor | null) => void;
 }
 
 export const RecordNoteEditor: React.FC<RecordNoteEditorProps> = ({
   content,
   onChange,
-  placeholder = 'Escreva suas anotações em Markdown...',
+  placeholder = 'Escreva suas anotações em Markdown... Dica: digite / para comandos!',
   readOnly = false,
+  onEditorReady,
 }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
   const isInternalUpdateRef = useRef(false);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+
+  const slashMenu = useSlashMenu({
+    containerRef,
+    enabled: !readOnly,
+  });
 
   const editor = useEditor({
     editable: !readOnly,
@@ -77,17 +88,33 @@ export const RecordNoteEditor: React.FC<RecordNoteEditorProps> = ({
         class:
           'prose dark:prose-invert max-w-none focus:outline-none min-h-[320px] text-stone-900 dark:text-neutral-100 leading-relaxed text-base font-normal',
       },
+      handleKeyDown: (view, event) => {
+        if (slashMenu.handleKeyDown(view, event)) {
+          return true;
+        }
+        return false;
+      },
     },
     onUpdate: ({ editor }) => {
       isInternalUpdateRef.current = true;
       const html = editor.getHTML();
       const markdown = htmlToMarkdown(html);
       onChangeRef.current(markdown);
+
+      slashMenu.handleUpdate(editor);
+
       setTimeout(() => {
         isInternalUpdateRef.current = false;
       }, 50);
     },
+    onSelectionUpdate: ({ editor }) => {
+      slashMenu.handleSelectionUpdate(editor);
+    },
   });
+
+  useEffect(() => {
+    onEditorReady?.(editor);
+  }, [editor, onEditorReady]);
 
   // Synchronize when external content changes (e.g. user selected another record)
   useEffect(() => {
@@ -101,8 +128,18 @@ export const RecordNoteEditor: React.FC<RecordNoteEditorProps> = ({
   }, [content, editor]);
 
   return (
-    <div className="w-full h-full cursor-text" onClick={() => editor?.commands.focus()}>
+    <div ref={containerRef} className="relative w-full h-full cursor-text" onClick={() => editor?.commands.focus()}>
       <EditorContent editor={editor} />
+
+      {slashMenu.isOpen && (
+        <SlashMenu
+          items={slashMenu.filteredCommands}
+          selectedIndex={slashMenu.selectedIndex}
+          onSelect={slashMenu.executeCommand}
+          onClose={slashMenu.close}
+          position={slashMenu.position}
+        />
+      )}
     </div>
   );
 };

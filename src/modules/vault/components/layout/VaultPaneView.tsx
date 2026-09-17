@@ -8,7 +8,7 @@ import { VaultEditor } from '../VaultEditor';
 import { VaultMediaPreview } from '../VaultMediaPreview';
 import { BoardView } from '@/modules/board/components/BoardView';
 import { DatabaseContainer } from '@/modules/database/components/DatabaseContainer';
-import { FileText, Search, Plus } from 'lucide-react';
+import { Search, Plus, FolderKanban, X } from 'lucide-react';
 
 interface VaultPaneViewProps {
   pane: VaultPaneLeaf;
@@ -25,12 +25,14 @@ export const VaultPaneView: React.FC<VaultPaneViewProps> = ({
     splitPane,
     closeTabInPane,
     createFile,
+    openCanvasTab,
     setCommandPaletteOpen,
     draggedTab,
+    setDraggedTab,
     dropPreview,
     setDropPreview,
-    setDraggedTab,
     moveTabToPane,
+    openNewTab,
   } = useVaultStore();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -203,18 +205,9 @@ export const VaultPaneView: React.FC<VaultPaneViewProps> = ({
       {/* Content Area */}
       <div className={`flex-1 overflow-hidden relative min-h-0 flex flex-col ${draggedTab ? 'pointer-events-none' : ''}`}>
         {pane.tabs.length === 0 || !activeTab ? (
-          /* Painel vazio sem abas */
+          /* Painel vazio sem abas Sem documentos */
           <div className="flex-1 flex flex-col items-center justify-center text-stone-500 dark:text-neutral-400 p-8 select-none bg-[#FAF9F6]/80 dark:bg-black/20 h-full">
-            <div className="w-14 h-14 rounded-2xl bg-white dark:bg-white/5 border border-stone-200/90 dark:border-white/10 flex items-center justify-center mb-3 text-stone-400 dark:text-neutral-400 shadow-xs">
-              <FileText className="w-7 h-7" />
-            </div>
-            <h3 className="text-sm font-semibold text-stone-700 dark:text-neutral-300 mb-1">
-              Nenhum documento
-            </h3>
-            <p className="text-xs text-stone-500 dark:text-neutral-400 max-w-xs text-center mb-4">
-              Selecione uma nota no menu lateral ou crie uma nova nota.
-            </p>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col items-center justify-center gap-2">
               <button
                 type="button"
                 onClick={async () => {
@@ -228,7 +221,7 @@ export const VaultPaneView: React.FC<VaultPaneViewProps> = ({
               <button
                 type="button"
                 onClick={() => setCommandPaletteOpen(true)}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white hover:bg-stone-100 dark:bg-white/5 dark:hover:bg-white/10 text-xs font-medium text-stone-700 dark:text-neutral-200 border border-stone-200/90 dark:border-white/10 shadow-xs transition-colors cursor-pointer"
+                className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-white hover:bg-stone-100 dark:bg-white/5 dark:hover:bg-white/10 text-xs font-medium text-stone-700 dark:text-neutral-200 border border-stone-200/90 dark:border-white/10 shadow-xs transition-colors cursor-pointer"
               >
                 <Search className="w-3.5 h-3.5 text-[#1831D7] dark:text-[#7F95FF]" />
                 <span>Buscar (Ctrl+P)</span>
@@ -241,25 +234,16 @@ export const VaultPaneView: React.FC<VaultPaneViewProps> = ({
             const isTabCanvas = tab.type === 'canvas' || tab.path.startsWith('canvas:');
             const isTabDatabase =
               tab.type === 'database' ||
-              tab.path.toLowerCase().endsWith('.db.json') ||
-              tab.path.toLowerCase().endsWith('.database') ||
-              tab.path.toLowerCase().endsWith('.db.json.md');
+              tab.path.toLowerCase().includes('.db.json') ||
+              tab.path.toLowerCase().includes('.database') ||
+              tab.path.toLowerCase().includes('.db.json.md');
             const canvasId = tab.canvasId || (tab.path.startsWith('canvas:') ? tab.path.replace('canvas:', '') : null);
 
             if (tab.type === 'empty' || tab.path.startsWith('new-tab:')) {
               if (!isActive) return null;
               return (
                 <div key={`${pane.id}:${tab.path}`} className="flex-1 flex flex-col items-center justify-center text-stone-500 dark:text-neutral-400 p-8 select-none bg-[#FAF9F6]/80 dark:bg-black/20 h-full">
-                  <div className="w-14 h-14 rounded-2xl bg-white dark:bg-white/5 border border-stone-200/90 dark:border-white/10 flex items-center justify-center mb-3 text-stone-400 dark:text-neutral-400 shadow-xs">
-                    <FileText className="w-7 h-7" />
-                  </div>
-                  <h3 className="text-sm font-semibold text-stone-700 dark:text-neutral-300 mb-1">
-                    Nova Aba
-                  </h3>
-                  <p className="text-xs text-stone-500 dark:text-neutral-400 max-w-xs text-center mb-4">
-                    Selecione uma nota no menu lateral ou crie uma nova nota.
-                  </p>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-col items-center justify-center gap-2">
                     <button
                       type="button"
                       onClick={async () => {
@@ -273,10 +257,18 @@ export const VaultPaneView: React.FC<VaultPaneViewProps> = ({
                     <button
                       type="button"
                       onClick={() => setCommandPaletteOpen(true)}
-                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white hover:bg-stone-100 dark:bg-white/5 dark:hover:bg-white/10 text-xs font-medium text-stone-700 dark:text-neutral-200 border border-stone-200/90 dark:border-white/10 shadow-xs transition-colors cursor-pointer"
+                      className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-white hover:bg-stone-100 dark:bg-white/5 dark:hover:bg-white/10 text-xs font-medium text-stone-700 dark:text-neutral-200 border border-stone-200/90 dark:border-white/10 shadow-xs transition-colors cursor-pointer"
                     >
                       <Search className="w-3.5 h-3.5 text-[#1831D7] dark:text-[#7F95FF]" />
                       <span>Buscar (Ctrl+P)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => closeTabInPane(pane.id, tab.path)}
+                      className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-white hover:bg-stone-100 dark:bg-white/5 dark:hover:bg-white/10 text-xs font-medium text-stone-700 dark:text-neutral-200 border border-stone-200/90 dark:border-white/10 shadow-xs transition-colors cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5 text-stone-500 dark:text-neutral-400" />
+                      <span>Fechar Aba</span>
                     </button>
                   </div>
                 </div>

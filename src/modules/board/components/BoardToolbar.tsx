@@ -1,12 +1,11 @@
 import React from 'react';
-import { StickyNote, Type, Database, Search, HelpCircle, Undo2, Redo2 } from 'lucide-react';
+import { StickyNote, Type, Search, HelpCircle, Undo2, Redo2 } from 'lucide-react';
 import { BoardElementType } from '../types';
 import clsx from 'clsx';
 
 interface BoardToolbarProps {
   onAddNote: () => void;
   onAddText: () => void;
-  onAddDatabase?: () => void;
   onOpenVaultSearch: () => void;
   onToolDragStart?: (tool: BoardElementType | 'vault-search') => void;
   onToolDragEnd?: () => void;
@@ -19,7 +18,6 @@ interface BoardToolbarProps {
 export const BoardToolbar: React.FC<BoardToolbarProps> = ({
   onAddNote,
   onAddText,
-  onAddDatabase,
   onOpenVaultSearch,
   onToolDragStart,
   onToolDragEnd,
@@ -29,6 +27,13 @@ export const BoardToolbar: React.FC<BoardToolbarProps> = ({
   canRedo = false,
 }) => {
   const [showHint, setShowHint] = React.useState(false);
+  const [isTouchDevice, setIsTouchDevice] = React.useState(false);
+
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setIsTouchDevice(('ontouchstart' in window) || (navigator.maxTouchPoints > 0));
+    }
+  }, []);
 
   const handleDragStart = (e: React.DragEvent, tool: BoardElementType | 'vault-search') => {
     e.dataTransfer.setData('application/rpgsa-board-tool', tool);
@@ -41,6 +46,11 @@ export const BoardToolbar: React.FC<BoardToolbarProps> = ({
     if (e.dataTransfer.setDragImage) {
       e.dataTransfer.setDragImage(img, 0, 0);
     }
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent, action: () => void) => {
+    e.preventDefault();
+    action();
   };
 
   return (
@@ -60,63 +70,46 @@ export const BoardToolbar: React.FC<BoardToolbarProps> = ({
         {/* Adicionar Nota */}
         <button
           onClick={onAddNote}
-          draggable
+          onTouchEnd={(e) => handleTouchEnd(e, onAddNote)}
+          draggable={!isTouchDevice}
           onDragStart={(e) => handleDragStart(e, 'note')}
           onDragEnd={() => onToolDragEnd?.()}
-          className="flex items-center gap-2 px-3.5 py-2 hover:bg-stone-100 dark:hover:bg-white/10 rounded-xl hover:text-stone-900 dark:hover:text-white transition-all hover:scale-105 active:scale-95 group text-xs font-medium cursor-grab active:cursor-grabbing"
-          title="Clique ou arraste para o canvas"
+          className="flex items-center justify-center p-1.5 hover:bg-stone-100 dark:hover:bg-white/10 rounded-xl hover:text-stone-900 dark:hover:text-white transition-all hover:scale-105 active:scale-95 group text-xs font-medium cursor-grab active:cursor-grabbing"
+          title="Nota - Clique ou arraste para o canvas"
         >
-          <div className="w-5 h-5 rounded-md badge-pastel-amber flex items-center justify-center">
-            <StickyNote className="w-3.5 h-3.5" />
+          <div className="w-6 h-6 rounded-md badge-pastel-amber flex items-center justify-center">
+            <StickyNote className="w-4 h-4" />
           </div>
-          <span>Nota</span>
         </button>
 
         {/* Adicionar Texto */}
         <button
           onClick={onAddText}
-          draggable
+          onTouchEnd={(e) => handleTouchEnd(e, onAddText)}
+          draggable={!isTouchDevice}
           onDragStart={(e) => handleDragStart(e, 'text')}
           onDragEnd={() => onToolDragEnd?.()}
-          className="flex items-center gap-2 px-3.5 py-2 hover:bg-stone-100 dark:hover:bg-white/10 rounded-xl hover:text-stone-900 dark:hover:text-white transition-all hover:scale-105 active:scale-95 group text-xs font-medium cursor-grab active:cursor-grabbing"
-          title="Clique ou arraste para o canvas"
+          className="flex items-center justify-center p-1.5 hover:bg-stone-100 dark:hover:bg-white/10 rounded-xl hover:text-stone-900 dark:hover:text-white transition-all hover:scale-105 active:scale-95 group text-xs font-medium cursor-grab active:cursor-grabbing"
+          title="Texto - Clique ou arraste para o canvas"
         >
-          <div className="w-5 h-5 rounded-md badge-pastel-lavender flex items-center justify-center">
-            <Type className="w-3.5 h-3.5" />
+          <div className="w-6 h-6 rounded-md badge-pastel-lavender flex items-center justify-center">
+            <Type className="w-4 h-4" />
           </div>
-          <span>Texto</span>
         </button>
-
-        {/* Adicionar Base de Dados */}
-        {onAddDatabase && (
-          <button
-            onClick={onAddDatabase}
-            draggable
-            onDragStart={(e) => handleDragStart(e, 'database')}
-            onDragEnd={() => onToolDragEnd?.()}
-            className="flex items-center gap-2 px-3.5 py-2 hover:bg-stone-100 dark:hover:bg-white/10 rounded-xl hover:text-stone-900 dark:hover:text-white transition-all hover:scale-105 active:scale-95 group text-xs font-medium cursor-grab active:cursor-grabbing"
-            title="Clique ou arraste para o canvas"
-          >
-            <div className="w-5 h-5 rounded-md bg-[#52B1FF]/20 text-[#52B1FF] flex items-center justify-center">
-              <Database className="w-3.5 h-3.5" />
-            </div>
-            <span>Base de Dados</span>
-          </button>
-        )}
 
         {/* Adicionar do Vault (Áudio, Imagem, Preview, Notas) */}
         <button
           onClick={onOpenVaultSearch}
-          draggable
+          onTouchEnd={(e) => handleTouchEnd(e, onOpenVaultSearch)}
+          draggable={!isTouchDevice}
           onDragStart={(e) => handleDragStart(e, 'vault-search')}
           onDragEnd={() => onToolDragEnd?.()}
-          className="flex items-center gap-2 px-3.5 py-2 hover:bg-stone-100 dark:hover:bg-white/10 rounded-xl hover:text-stone-900 dark:hover:text-white transition-all hover:scale-105 active:scale-95 group text-xs font-medium cursor-grab active:cursor-grabbing"
-          title="Buscar e adicionar elementos do Vault (Áudios, Imagens, Quadros, Notas) - Clique ou arraste para o canvas"
+          className="flex items-center justify-center p-1.5 hover:bg-stone-100 dark:hover:bg-white/10 rounded-xl hover:text-stone-900 dark:hover:text-white transition-all hover:scale-105 active:scale-95 group text-xs font-medium cursor-grab active:cursor-grabbing"
+          title="Buscar e adicionar elementos do Vault (Áudios, Imagens, Quadros, Notas)"
         >
-          <div className="w-5 h-5 rounded-md badge-pastel-mint flex items-center justify-center">
-            <Search className="w-3.5 h-3.5" />
+          <div className="w-6 h-6 rounded-md badge-pastel-mint flex items-center justify-center">
+            <Search className="w-4 h-4" />
           </div>
-          <span>Adicionar do Vault</span>
         </button>
 
         <div className="w-[1px] h-5 bg-black/10 dark:bg-white/10 mx-1" />

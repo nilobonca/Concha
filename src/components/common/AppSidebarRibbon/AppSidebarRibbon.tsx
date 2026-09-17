@@ -4,6 +4,7 @@ import {
   Files, 
   Network, 
   FolderKanban, 
+  Database,
   LayoutTemplate, 
   Search, 
   Link2 
@@ -234,6 +235,21 @@ export const AppSidebarRibbon: React.FC<AppSidebarRibbonProps> = (props) => {
                   subtitle="Canvas de Conexões"
                   isLight={isLight}
                   onClick={props.onCreateBoardCanvas}
+                />
+
+                {/* 5.5. Nova Base de Dados */}
+                <RibbonIconButton
+                  icon={Database}
+                  label="Nova Base de Dados"
+                  subtitle="Tabela e Kanban DB"
+                  isLight={isLight}
+                  onClick={async () => {
+                    try {
+                      await vaultStore.createDatabase('');
+                    } catch (err) {
+                      console.warn(err);
+                    }
+                  }}
                 />
 
                 {/* 6. Modelos de Notas */}

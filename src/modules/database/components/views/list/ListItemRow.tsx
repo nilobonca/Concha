@@ -2,32 +2,61 @@ import React from 'react';
 import { DatabaseRow, PropertyDefinition, SELECT_OPTION_COLOR_MAP } from '../../../types';
 import { Check, Maximize2, Trash2, FileText } from 'lucide-react';
 import { formatPropertyValue } from '../../../utils/databaseCalculations';
+import { formatDatabaseRowPath } from '@/modules/vault/utils/databaseNodeUtils';
 
 export interface ListItemRowProps {
   row: DatabaseRow;
   properties: PropertyDefinition[];
   visiblePropertyIds: string[];
+  databasePath?: string;
   onUpdateProperty: (rowId: string, propertyId: string, value: any) => void;
   onOpenPeek?: (rowId: string) => void;
   onDeleteRow?: (rowId: string) => void;
+  onContextMenu?: (e: React.MouseEvent, row: DatabaseRow) => void;
 }
 
 export const ListItemRow: React.FC<ListItemRowProps> = ({
   row,
   properties,
   visiblePropertyIds,
+  databasePath,
   onUpdateProperty,
   onOpenPeek,
   onDeleteRow,
+  onContextMenu,
 }) => {
   const checkboxProp = properties.find((p) => p.type === 'checkbox');
   const otherVisibleProps = properties.filter(
     (p) => p.type !== 'title' && p.type !== 'checkbox' && visiblePropertyIds.includes(p.id)
   );
 
+  const handleDragStart = (e: React.DragEvent) => {
+    if (databasePath) {
+      const rowPath = formatDatabaseRowPath(databasePath, row.id);
+      e.dataTransfer.setData('text/plain', rowPath);
+      e.dataTransfer.setData(
+        'application/rpgsa-vault-note',
+        JSON.stringify({
+          path: rowPath,
+          name: row.title || 'Nota sem título',
+          isDatabaseRow: true,
+          dbPath: databasePath,
+          rowId: row.id,
+        })
+      );
+    }
+  };
+
   return (
     <div
+      draggable={Boolean(databasePath)}
+      onDragStart={handleDragStart}
       onClick={() => onOpenPeek?.(row.id)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onContextMenu?.(e, row);
+      }}
       className="group flex items-center justify-between px-4 py-2 hover:bg-stone-100/70 dark:hover:bg-white/5 rounded-xl border border-transparent hover:border-stone-200 dark:hover:border-white/10 transition-all cursor-pointer select-none"
     >
       {/* Left: Checkbox, Icon, Title */}

@@ -226,6 +226,7 @@ export const VaultLayout: React.FC = () => {
         className="absolute top-0 right-0 h-9 z-50 flex items-center pr-1.5 select-none pointer-events-auto app-region-no-drag"
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         onMouseDown={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
       >
         <WindowControls variant="compact" />
       </div>

@@ -67,6 +67,7 @@ export interface UseDatabaseReturn {
   addView: (type: DatabaseViewType, name?: string) => DatabaseViewConfig;
   updateView: (viewId: string, updates: Partial<DatabaseViewConfig>) => void;
   deleteView: (viewId: string) => void;
+  reorderViews: (newViews: DatabaseViewConfig[]) => void;
   setActiveView: (viewId: string) => void;
 }
 
@@ -576,6 +577,17 @@ export function useDatabase(options: UseDatabaseOptions = {}): UseDatabaseReturn
     [database, pushState]
   );
 
+  const reorderViews = useCallback(
+    (newViews: DatabaseViewConfig[]) => {
+      pushState({
+        ...database,
+        views: newViews,
+        updatedAt: Date.now(),
+      });
+    },
+    [database, pushState]
+  );
+
   const setActiveView = useCallback(
     (viewId: string) => {
       if (database.activeViewId === viewId) return;
@@ -632,6 +644,7 @@ export function useDatabase(options: UseDatabaseOptions = {}): UseDatabaseReturn
     addView,
     updateView,
     deleteView,
+    reorderViews,
     setActiveView,
   };
 }

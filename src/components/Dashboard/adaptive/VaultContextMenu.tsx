@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { RegisteredVault } from '@/modules/vault/hooks/useVaultRegistry';
 import clsx from 'clsx';
+import { useClickOutside } from '@/hooks/useClickOutside';
 
 export interface VaultContextMenuProps {
   isOpen: boolean;
@@ -45,36 +46,11 @@ export const VaultContextMenu: React.FC<VaultContextMenuProps> = ({
   const [coords, setCoords] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [copied, setCopied] = useState(false);
 
-  // Fecha ao clicar fora ou rolar a página
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handlePointerDown = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    const handleScroll = () => {
-      onClose();
-    };
-
-    document.addEventListener('pointerdown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('scroll', handleScroll, true);
-
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('scroll', handleScroll, true);
-    };
-  }, [isOpen, onClose]);
+  useClickOutside({
+    ref: menuRef,
+    onClose,
+    enabled: isOpen,
+  });
 
   // Calcula posição ajustada para evitar transbordar a tela
   useEffect(() => {
@@ -127,7 +103,7 @@ export const VaultContextMenu: React.FC<VaultContextMenuProps> = ({
     <div
       ref={menuRef}
       style={{ top: coords.y, left: coords.x }}
-      className="fixed z-[9999] w-56 rounded-xl bg-white dark:bg-[#181A29] border border-black/10 dark:border-white/10 shadow-2xl p-1.5 text-xs text-stone-800 dark:text-[#F4F0E6] flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100 select-none"
+      className="fixed z-[9999] w-56 rounded-lg bg-white dark:bg-[#181A29] border border-black/10 dark:border-white/10 shadow-2xl p-1.5 text-xs text-stone-800 dark:text-[#F4F0E6] flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100 select-none"
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}
     >

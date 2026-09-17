@@ -43,6 +43,7 @@ const lowlight = createLowlight(common);
 import { DeleteConfirmModal } from './DeleteConfirmModal';
 import { PromptInputModal } from './PromptInputModal';
 import { VaultSlashMenu } from './VaultSlashMenu';
+import { useSlashMenu } from '@/modules/common/components/SlashMenu';
 import { FORMATTING_COMMANDS, FormattingCommand } from '../utils/formattingCommands';
 import { useSpellCheckStore } from '@/store/spellCheckStore';
 
@@ -350,49 +351,8 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath, 
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  // Slash Command (/) Autocomplete state
-  const [slashOpen, setSlashOpen] = useState(false);
-  const [slashQuery, setSlashQuery] = useState('');
-  const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
-  const [slashPosition, setSlashPosition] = useState<{ top: number; left: number } | null>(null);
-
-  const filteredSlashCommands = React.useMemo(() => {
-    if (!slashQuery.trim()) return FORMATTING_COMMANDS;
-    const q = slashQuery.toLowerCase().trim();
-    return FORMATTING_COMMANDS.filter(cmd => 
-      cmd.title.toLowerCase().includes(q) ||
-      cmd.description.toLowerCase().includes(q) ||
-      cmd.keywords.some(k => k.toLowerCase().includes(q))
-    );
-  }, [slashQuery]);
-
-  const slashOpenRef = useRef(slashOpen);
-  const selectedSlashIndexRef = useRef(selectedSlashIndex);
-  const filteredSlashCommandsRef = useRef(filteredSlashCommands);
-  const slashQueryRef = useRef(slashQuery);
-  const executeSlashRef = useRef<(cmd: FormattingCommand) => void>(() => {});
-
-  useEffect(() => {
-    slashOpenRef.current = slashOpen;
-  }, [slashOpen]);
-
-  useEffect(() => {
-    selectedSlashIndexRef.current = selectedSlashIndex;
-  }, [selectedSlashIndex]);
-
-  useEffect(() => {
-    filteredSlashCommandsRef.current = filteredSlashCommands;
-  }, [filteredSlashCommands]);
-
-  useEffect(() => {
-    slashQueryRef.current = slashQuery;
-  }, [slashQuery]);
-
-  useEffect(() => {
-    if (selectedSlashIndex >= filteredSlashCommands.length && filteredSlashCommands.length > 0) {
-      setSelectedSlashIndex(0);
-    }
-  }, [filteredSlashCommands.length, selectedSlashIndex]);
+  // Unified Slash Menu (/) Hook
+  const slashMenu = useSlashMenu({ containerRef: scrollContainerRef });
 
   const editor = useEditor({
     editable: true,
@@ -440,32 +400,8 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath, 
       },
       handleKeyDown: (view, event) => {
         // 1. Slash command navigation (/)
-        if (slashOpenRef.current && filteredSlashCommandsRef.current.length > 0) {
-          if (event.key === 'ArrowDown') {
-            event.preventDefault();
-            setSelectedSlashIndex(prev => (prev + 1) % filteredSlashCommandsRef.current.length);
-            return true;
-          }
-          if (event.key === 'ArrowUp') {
-            event.preventDefault();
-            setSelectedSlashIndex(prev => (prev - 1 + filteredSlashCommandsRef.current.length) % filteredSlashCommandsRef.current.length);
-            return true;
-          }
-          if (event.key === 'Enter' || event.key === 'Tab') {
-            event.preventDefault();
-            const currentIdx = selectedSlashIndexRef.current;
-            const currentCmd = filteredSlashCommandsRef.current[currentIdx];
-            if (currentCmd) {
-              executeSlashRef.current(currentCmd);
-              return true;
-            }
-            return true;
-          }
-          if (event.key === 'Escape') {
-            event.preventDefault();
-            setSlashOpen(false);
-            return true;
-          }
+        if (slashMenu.handleKeyDown(view, event)) {
+          return true;
         }
 
         // 2. Wikilink autocomplete navigation ([[])
@@ -610,70 +546,40 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath, 
       const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, ' ');
       const match = textBefore.match(/\[\[([^\]]*)$/);
 
-      if (match) {
-        setSuggestionQuery(match[1]);
-        setSuggestionOpen(true);
-        setSelectedSuggestionIndex(0);
-        setSlashOpen(false);
-
-        try {
-          const coords = editor.view.coordsAtPos($from.pos);
-          const container = scrollContainerRef.current?.getBoundingClientRect();
-          if (container && coords) {
-            const top = coords.bottom - container.top + (scrollContainerRef.current?.scrollTop || 0) + 6;
-            const left = Math.max(16, Math.min(coords.left - container.left, (container.width || 500) - 330));
-            setSuggestionPosition({ top, left });
-          }
-        } catch {
-          setSuggestionPosition(null);
-        }
-      } else {
-        setSuggestionOpen(false);
-
-        // Check for / slash command trigger
-        const slashMatch = textBefore.match(/(?:^|\s)\/([a-zA-Z0-9_\u00C0-\u00FF-]*)$/);
-        if (slashMatch) {
-          setSlashQuery(slashMatch[1]);
-          setSlashOpen(true);
-          setSelectedSlashIndex(0);
+        if (match) {
+          setSuggestionQuery(match[1]);
+          setSuggestionOpen(true);
+          setSelectedSuggestionIndex(0);
+          slashMenu.close();
 
           try {
             const coords = editor.view.coordsAtPos($from.pos);
             const container = scrollContainerRef.current?.getBoundingClientRect();
             if (container && coords) {
               const top = coords.bottom - container.top + (scrollContainerRef.current?.scrollTop || 0) + 6;
-              const left = Math.max(16, Math.min(coords.left - container.left, (container.width || 500) - 300));
-              setSlashPosition({ top, left });
+              const left = Math.max(16, Math.min(coords.left - container.left, (container.width || 500) - 330));
+              setSuggestionPosition({ top, left });
             }
           } catch {
-            setSlashPosition(null);
+            setSuggestionPosition(null);
           }
         } else {
-          setSlashOpen(false);
-        }
-      }
-    },
-    onSelectionUpdate: ({ editor }) => {
-      if (!slashOpenRef.current && !suggestionOpenRef.current) return;
-
-      const { selection } = editor.state;
-      const { $from } = selection;
-      const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, ' ');
-
-      if (slashOpenRef.current) {
-        const slashMatch = textBefore.match(/(?:^|\s)\/([a-zA-Z0-9_\u00C0-\u00FF-]*)$/);
-        if (!slashMatch) {
-          setSlashOpen(false);
-        }
-      }
-
-      if (suggestionOpenRef.current) {
-        const match = textBefore.match(/\[\[([^\]]*)$/);
-        if (!match) {
           setSuggestionOpen(false);
+          slashMenu.handleUpdate(editor);
         }
-      }
-    },
+      },
+      onSelectionUpdate: ({ editor }) => {
+        slashMenu.handleSelectionUpdate(editor);
+        if (suggestionOpenRef.current) {
+          const { selection } = editor.state;
+          const { $from } = selection;
+          const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, ' ');
+          const match = textBefore.match(/\[\[([^\]]*)$/);
+          if (!match) {
+            setSuggestionOpen(false);
+          }
+        }
+      },
   });
 
   // Keep active editor reference synced with store
@@ -698,44 +604,19 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath, 
     }
   }, [editor, spellCheckEnabled, langAttr]);
 
-  const handleExecuteSlashCommand = (cmd: FormattingCommand) => {
-    if (!editor) return;
-    const { state, dispatch } = editor.view;
-    const { selection } = state;
-    const { $from } = selection;
-    const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, ' ');
-    const slashMatch = textBefore.match(/(?:^|\s)\/([a-zA-Z0-9_\u00C0-\u00FF-]*)$/);
-
-    if (slashMatch) {
-      const matchLen = slashMatch[1].length + 1; // includes '/'
-      const start = $from.pos - matchLen;
-      const end = $from.pos;
-      const tr = state.tr.delete(start, end);
-      dispatch(tr);
-    }
-    setSlashOpen(false);
-    setTimeout(() => {
-      cmd.execute(editor);
-    }, 10);
-  };
-
-  useEffect(() => {
-    executeSlashRef.current = handleExecuteSlashCommand;
-  });
-
   // Fechar menus de comando slash (/) e autocomplete ([[]) ao trocar de documento ou alternar visualização
   useEffect(() => {
-    setSlashOpen(false);
+    slashMenu.close();
     setSuggestionOpen(false);
-  }, [activePath, viewMode]);
+  }, [activePath, viewMode, slashMenu]);
 
   // Fechar menus de comando slash (/) e autocomplete ([[]) se a busca interna na nota for aberta
   useEffect(() => {
     if (searchOpen) {
-      setSlashOpen(false);
+      slashMenu.close();
       setSuggestionOpen(false);
     }
-  }, [searchOpen]);
+  }, [searchOpen, slashMenu]);
 
   // Sync title from activePath
   useEffect(() => {
@@ -1247,13 +1128,13 @@ export const VaultEditor: React.FC<VaultEditorProps> = ({ paneId, documentPath, 
           </div>
 
           {/* Slash Command Popup when user types / */}
-          {slashOpen && (
+          {slashMenu.isOpen && (
             <VaultSlashMenu
-              items={filteredSlashCommands}
-              selectedIndex={selectedSlashIndex}
-              onSelect={handleExecuteSlashCommand}
-              onClose={() => setSlashOpen(false)}
-              position={slashPosition}
+              items={slashMenu.filteredCommands}
+              selectedIndex={slashMenu.selectedIndex}
+              onSelect={slashMenu.executeCommand}
+              onClose={slashMenu.close}
+              position={slashMenu.position}
             />
           )}
 

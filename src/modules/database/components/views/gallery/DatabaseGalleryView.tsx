@@ -7,20 +7,24 @@ export interface DatabaseGalleryViewProps {
   rows: DatabaseRow[];
   properties: PropertyDefinition[];
   viewConfig: DatabaseViewConfig;
+  databasePath?: string;
   onUpdateProperty: (rowId: string, propertyId: string, value: any) => void;
   onAddNewRow: () => void;
   onOpenPeek?: (rowId: string) => void;
   isInline?: boolean;
+  onContextMenu?: (e: React.MouseEvent, row: DatabaseRow) => void;
 }
 
 export const DatabaseGalleryView: React.FC<DatabaseGalleryViewProps> = ({
   rows,
   properties,
   viewConfig,
+  databasePath,
   onUpdateProperty,
   onAddNewRow,
   onOpenPeek,
   isInline = false,
+  onContextMenu,
 }) => {
   return (
     <div className={`flex-1 w-full h-full overflow-y-auto ${isInline ? 'pt-1.5 px-3.5 pb-3.5' : 'pt-2 px-6 pb-6'}`}>
@@ -34,8 +38,10 @@ export const DatabaseGalleryView: React.FC<DatabaseGalleryViewProps> = ({
             coverPropertyId={viewConfig.coverPropertyId}
             cardSize={viewConfig.cardSize}
             fitImage={viewConfig.fitImage}
+            databasePath={databasePath}
             onOpenPeek={onOpenPeek}
             onUpdateProperty={onUpdateProperty}
+            onContextMenu={onContextMenu}
           />
         ))}
 

@@ -507,7 +507,6 @@ export const BoardView: React.FC<BoardViewProps> = ({
       <BoardToolbar
         onAddNote={() => createNote()}
         onAddText={() => createText()}
-        onAddDatabase={() => createDatabase({ title: 'Nova Base de Dados' })}
         onOpenVaultSearch={() => setVaultSearchModalOpen(true)}
         onToolDragStart={setDraggingTool}
         onToolDragEnd={() => setDraggingTool(null)}

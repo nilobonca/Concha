@@ -423,7 +423,8 @@ const CanvasContainer = React.forwardRef<CanvasContainerHandle, CanvasContainerP
       }
 
       if (selectionBox && containerRef.current) {
-        setSelectionBox(prev => prev ? { ...prev, currentX: e.clientX - containerRef.current!.getBoundingClientRect().left, currentY: e.clientY - containerRef.current!.getBoundingClientRect().top } : null);
+        const rect = containerRef.current.getBoundingClientRect();
+        setSelectionBox(prev => prev ? { ...prev, currentX: e.clientX - rect.left, currentY: e.clientY - rect.top } : null);
       }
     };
 

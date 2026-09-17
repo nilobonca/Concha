@@ -1,24 +1,27 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { BookOpen } from 'lucide-react';
-import { useGesture } from '@use-gesture/react';
 import { BoardElement, HandlePosition, NoteData } from '../../types';
-import { ElementHandles } from './ElementHandles';
-import { BoardNoteTitle } from './BoardNoteTitle';
-import { BoardNoteActions } from './BoardNoteActions';
+import {
+  BoardBaseNoteElement,
+  NOTE_THEMES,
+  getNoteTheme,
+} from './BoardBaseNoteElement';
 import { useVaultStore } from '@/modules/vault/hooks/useVaultStore';
 import { htmlToMarkdown } from '@/modules/vault/utils/markdownConverter';
 import { marked } from 'marked';
-import clsx from 'clsx';
 import { cleanLegacyPlaceholder, cleanDuplicateTitle } from '@/utils/cleanLegacyPlaceholder';
 import { UpdateOriginalNoteModal } from '@/modules/vault/components/UpdateOriginalNoteModal';
 import { getCanvasNoteSyncPref, setCanvasNoteSyncPref } from '@/modules/vault/utils/canvasNoteSyncPref';
 import { handleTextareaFormattingShortcut, handleTextareaAutoPairing } from '@/utils/textareaFormatting';
+import { SlashMenu, useSlashMenu } from '@/modules/common/components/SlashMenu';
+
+export { NOTE_THEMES, getNoteTheme };
 
 interface BoardNoteElementProps {
   element: BoardElement;
   isSelected: boolean;
   snappedHandle?: HandlePosition | null;
   zoom: number;
+  canvasTheme?: 'dark' | 'light';
   onSelect: (e?: React.MouseEvent | React.PointerEvent) => void;
   onUpdate: (updates: Partial<BoardElement>) => void;
   onDelete: () => void;
@@ -26,92 +29,6 @@ interface BoardNoteElementProps {
   onCenterElement?: () => void;
   onSetEditing?: (isEditing: boolean) => void;
   onDragStart?: () => void;
-}
-
-/**
- * Converte uma cor hex para HSL e retorna uma versão pastel
- * (alta luminosidade ~92%, saturação moderada ~55%).
- */
-function hexToPastelBg(hex: string): string {
-  const clean = hex.replace('#', '');
-  if (clean.length !== 6) return '#F4F0E6';
-  const r = parseInt(clean.substring(0, 2), 16) / 255;
-  const g = parseInt(clean.substring(2, 4), 16) / 255;
-  const b = parseInt(clean.substring(4, 6), 16) / 255;
-
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const delta = max - min;
-
-  let h = 0;
-  if (delta !== 0) {
-    if (max === r) h = ((g - b) / delta) % 6;
-    else if (max === g) h = (b - r) / delta + 2;
-    else h = (r - g) / delta + 4;
-    h = Math.round(h * 60);
-    if (h < 0) h += 360;
-  }
-
-  const pastelS = 55;
-  const pastelL = 92;
-
-  return `hsl(${h}, ${pastelS}%, ${pastelL}%)`;
-}
-
-export const NOTE_THEMES: Record<string, { border: string; bg: string; name: string }> = {
-  // Vermelhos
-  vermelho: { border: '#E53935', bg: hexToPastelBg('#E53935'), name: 'Vermelho' },
-  coral: { border: '#FF6B6B', bg: hexToPastelBg('#FF6B6B'), name: 'Coral' },
-  // Laranjas
-  laranja: { border: '#FB8C00', bg: hexToPastelBg('#FB8C00'), name: 'Laranja' },
-  tangerina: { border: '#FF9F43', bg: hexToPastelBg('#FF9F43'), name: 'Tangerina' },
-  // Amarelos
-  amarelo: { border: '#FDD835', bg: hexToPastelBg('#FDD835'), name: 'Amarelo' },
-  ambar: { border: '#FFCA28', bg: hexToPastelBg('#FFCA28'), name: 'Âmbar' },
-  // Verdes
-  verde: { border: '#43A047', bg: hexToPastelBg('#43A047'), name: 'Verde' },
-  esmeralda: { border: '#2ECC71', bg: hexToPastelBg('#2ECC71'), name: 'Esmeralda' },
-  menta: { border: '#26DE81', bg: hexToPastelBg('#26DE81'), name: 'Menta' },
-  // Cianos
-  ciano: { border: '#00BCD4', bg: hexToPastelBg('#00BCD4'), name: 'Ciano' },
-  turquesa: { border: '#00ACC1', bg: hexToPastelBg('#00ACC1'), name: 'Turquesa' },
-  // Azuis
-  cobalt: { border: '#1831D7', bg: hexToPastelBg('#1831D7'), name: 'Cobalto' },
-  periwinkle: { border: '#7F95FF', bg: hexToPastelBg('#7F95FF'), name: 'Periwinkle' },
-  cyan: { border: '#52B1FF', bg: hexToPastelBg('#52B1FF'), name: 'Celeste' },
-  royal: { border: '#1E88E5', bg: hexToPastelBg('#1E88E5'), name: 'Azul Royal' },
-  // Roxos
-  roxo: { border: '#8E24AA', bg: hexToPastelBg('#8E24AA'), name: 'Roxo' },
-  lavanda: { border: '#AB47BC', bg: hexToPastelBg('#AB47BC'), name: 'Lavanda' },
-  violeta: { border: '#7C4DFF', bg: hexToPastelBg('#7C4DFF'), name: 'Violeta' },
-  // Rosas
-  rosa: { border: '#EC407A', bg: hexToPastelBg('#EC407A'), name: 'Rosa' },
-  fucsia: { border: '#E040FB', bg: hexToPastelBg('#E040FB'), name: 'Fúcsia' },
-  rosegold: { border: '#F48FB1', bg: hexToPastelBg('#F48FB1'), name: 'Rose Gold' },
-  // Neutros e Especiais
-  grafite: { border: '#455A64', bg: hexToPastelBg('#455A64'), name: 'Grafite' },
-  marfim: { border: '#F4F0E6', bg: '#FDFCF8', name: 'Marfim' },
-  midnight: { border: '#17192A', bg: hexToPastelBg('#17192A'), name: 'Midnight' },
-};
-
-function getNoteTheme(color?: string) {
-  if (!color) return NOTE_THEMES.cobalt;
-  const lower = color.toLowerCase();
-
-  // Procura correspondência direta por border color
-  for (const key of Object.keys(NOTE_THEMES)) {
-    const t = NOTE_THEMES[key];
-    if (t.border.toLowerCase() === lower || key === lower) {
-      return t;
-    }
-  }
-
-  // Para qualquer cor hex arbitrária, gera tema com fundo pastel
-  if (lower.startsWith('#') && (lower.length === 7 || lower.length === 4)) {
-    return { border: color, bg: hexToPastelBg(color), name: 'Personalizada' };
-  }
-
-  return NOTE_THEMES.cobalt;
 }
 
 function processMarkdownForPreview(markdown: string, title?: string): string {
@@ -159,6 +76,7 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
   isSelected,
   snappedHandle,
   zoom,
+  canvasTheme = 'dark',
   onSelect,
   onUpdate,
   onDelete,
@@ -168,13 +86,23 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
   onDragStart,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const { provider } = useVaultStore();
-  const [isHovered, setIsHovered] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const data = useMemo(() => (element.data || {}) as NoteData, [element.data]);
   const wasSelectedRef = useRef(isSelected);
   const pointerDownPosRef = useRef<{ x: number; y: number } | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Nome/título da nota usado para filtrar duplicações
+  const noteTitle = data.title || (data.filePath ? data.filePath.split('/').pop()?.replace(/\.(md|txt)$/i, '') : '') || '';
+
+  // Estado local do rascunho de edição
+  const [draftContent, setDraftContent] = useState(() => cleanDuplicateTitle(cleanLegacyPlaceholder(data.content), noteTitle));
+
+  const slashMenu = useSlashMenu({
+    containerRef,
+    textareaRef,
+    onTextareaChange: setDraftContent,
+  });
 
   // Ao entrar no modo de edição, foca a textarea e posiciona o cursor no final do texto
   useEffect(() => {
@@ -184,9 +112,6 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
       textareaRef.current.setSelectionRange(len, len);
     }
   }, [isEditing]);
-
-  // Nome/título da nota usado para filtrar duplicações
-  const noteTitle = data.title || (data.filePath ? data.filePath.split('/').pop()?.replace(/\.(md|txt)$/i, '') : '') || '';
 
   // Notifica o hook do Board que este elemento está em modo de edição
   useEffect(() => {
@@ -234,13 +159,13 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
         const newPath = parts.join('/');
 
         try {
-          await useVaultStore.getState().renameNode(data.filePath, newPath, false);
+          const actualNewPath = await useVaultStore.getState().renameNode(data.filePath, newPath, false);
 
           onUpdate({
             data: {
               ...data,
               title: cleanTitle,
-              filePath: newPath,
+              filePath: actualNewPath || newPath,
             }
           });
           return;
@@ -306,7 +231,7 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
             data: {
               ...data,
               filePath: newPath,
-              title: newTitle,
+              title: data.title || newTitle,
             }
           });
         }
@@ -318,9 +243,6 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
       window.removeEventListener('vault_node_renamed', handleVaultNodeRenamed);
     };
   }, [data, onUpdate]);
-
-  // Estado local do rascunho de edição (limpando qualquer placeholder residual e título redundante)
-  const [draftContent, setDraftContent] = useState(() => cleanDuplicateTitle(cleanLegacyPlaceholder(data.content), noteTitle));
 
   // Sincroniza draft quando o conteúdo externo mudar e não estivermos editando
   useEffect(() => {
@@ -379,10 +301,9 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
   const [showSyncModal, setShowSyncModal] = useState(false);
   const pendingDraftRef = useRef<string>(draftContent);
 
-  const theme = getNoteTheme(data.color);
-
   // Salvar nota e sair do modo edição
   const saveAndExitEdit = useCallback(() => {
+    slashMenu.close();
     setIsEditing(false);
     wasSelectedRef.current = false;
     const cleanedDraft = cleanDuplicateTitle(cleanLegacyPlaceholder(draftContent), noteTitle);
@@ -410,7 +331,7 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
         setShowSyncModal(true);
       }
     }
-  }, [data, draftContent, noteTitle, onUpdate]);
+  }, [data, draftContent, noteTitle, onUpdate, slashMenu]);
 
   const saveAndExitEditRef = useRef(saveAndExitEdit);
   saveAndExitEditRef.current = saveAndExitEdit;
@@ -446,7 +367,6 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
       }
     };
 
-    // Pequeno atraso para evitar que eventos residuais do clique/duplo-clique inicial fechem prematuramente a edição
     const timer = setTimeout(() => {
       window.addEventListener('pointerdown', handlePointerDownOutside, true);
     }, 50);
@@ -457,7 +377,7 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
     };
   }, [isEditing, showSyncModal]);
 
-  // Se perder a seleção enquanto edita, salva e volta ao modo renderizado (apenas se estava selecionado anteriormente)
+  // Se perder a seleção enquanto edita, salva e volta ao modo renderizado
   const prevIsSelectedRef = useRef(isSelected);
   useEffect(() => {
     if (prevIsSelectedRef.current && !isSelected && isEditing) {
@@ -473,191 +393,28 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
     return processMarkdownForPreview(rawContent, noteTitle);
   }, [isEditing, draftContent, data.content, noteTitle]);
 
-  // Arraste do elemento
-  const bindDrag = useGesture({
-    onDrag: ({ offset: [ox, oy], event }) => {
-      event.stopPropagation();
-      onUpdate({
-        x: ox / zoom,
-        y: oy / zoom,
-      });
-    },
-    onDragStart: ({ event }) => {
-      event.stopPropagation();
-      onSelect(event as unknown as React.MouseEvent);
-      onDragStart?.();
-    },
-  }, {
-    drag: {
-      from: () => [element.x * zoom, element.y * zoom],
-      filterTaps: false,
-    }
-  });
-
-  // Redimensionamento interativo suave e preciso via Pointer Events
-  const handleResizePointerDown = (
-    direction: 'se' | 'sw' | 'ne' | 'nw' | 'e' | 's' | 'w' | 'n',
-    e: React.PointerEvent
-  ) => {
-    e.stopPropagation();
-    e.preventDefault();
-    onSelect();
-
-    const startClientX = e.clientX;
-    const startClientY = e.clientY;
-    const startX = element.x;
-    const startY = element.y;
-    const startW = element.width;
-    const startH = element.height;
-
-    const MIN_W = 160;
-    const MIN_H = 120;
-
-    const handlePointerMove = (moveEv: PointerEvent) => {
-      moveEv.stopPropagation();
-      moveEv.preventDefault();
-
-      const dx = (moveEv.clientX - startClientX) / zoom;
-      const dy = (moveEv.clientY - startClientY) / zoom;
-
-      let newX = startX;
-      let newY = startY;
-      let newW = startW;
-      let newH = startH;
-
-      if (direction.includes('e')) {
-        newW = Math.max(MIN_W, startW + dx);
-      }
-      if (direction.includes('s')) {
-        newH = Math.max(MIN_H, startH + dy);
-      }
-      if (direction.includes('w')) {
-        const proposedW = startW - dx;
-        if (proposedW >= MIN_W) {
-          newW = proposedW;
-          newX = startX + dx;
-        } else {
-          newW = MIN_W;
-          newX = startX + (startW - MIN_W);
-        }
-      }
-      if (direction.includes('n')) {
-        const proposedH = startH - dy;
-        if (proposedH >= MIN_H) {
-          newH = proposedH;
-          newY = startY + dy;
-        } else {
-          newH = MIN_H;
-          newY = startY + (startH - MIN_H);
-        }
-      }
-
-      onUpdate({
-        x: newX,
-        y: newY,
-        width: newW,
-        height: newH,
-      });
-    };
-
-    const handlePointerUp = (upEv: PointerEvent) => {
-      upEv.stopPropagation();
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-      window.removeEventListener('pointercancel', handlePointerUp);
-    };
-
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
-    window.addEventListener('pointercancel', handlePointerUp);
-  };
-
   return (
-    <div
-      ref={containerRef}
-      tabIndex={-1}
-      data-board-element="true"
-      style={{
-        position: 'absolute',
-        left: element.x,
-        top: element.y,
-        width: element.width,
-        height: element.height,
-        zIndex: isSelected ? 50 : element.zIndex,
-      }}
-      className="group select-none outline-none"
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-      onPointerDown={(e) => {
-        containerRef.current?.focus({ preventScroll: true });
-        handlePointerDown(e);
-      }}
-      onClick={(e) => {
-        e.stopPropagation();
-        containerRef.current?.focus({ preventScroll: true });
-        onSelect(e);
-        handleClick(e);
-      }}
-      onDoubleClick={handleDoubleClick}
-      onKeyDownCapture={(e) => {
-        const targetTag = (e.target as HTMLElement)?.tagName;
-        if (targetTag === 'TEXTAREA' || targetTag === 'INPUT') {
-          return;
-        }
-        if (isEditing) {
-          e.stopPropagation();
-          e.nativeEvent.stopImmediatePropagation();
-        }
-      }}
-      onKeyDown={(e) => {
-        if (isEditing) {
-          e.stopPropagation();
-          e.nativeEvent.stopImmediatePropagation();
-        }
-      }}
-    >
-      {/* Alças de Conexão no meio das 4 bordas */}
-      <ElementHandles
-        isVisible={isHovered || isSelected}
-        snappedHandle={snappedHandle}
-        onStartArrow={onStartArrow}
-      />
-
-      {/* Zonas de Redimensionamento Invisíveis nos 4 Ângulos da Nota */}
-      <div
-        onPointerDown={(e) => handleResizePointerDown('nw', e)}
-        className="absolute -top-2 -left-2 w-6 h-6 cursor-nwse-resize z-40 pointer-events-auto"
-        title="Redimensionar"
-      />
-      <div
-        onPointerDown={(e) => handleResizePointerDown('ne', e)}
-        className="absolute -top-2 -right-2 w-6 h-6 cursor-nesw-resize z-40 pointer-events-auto"
-        title="Redimensionar"
-      />
-      <div
-        onPointerDown={(e) => handleResizePointerDown('sw', e)}
-        className="absolute -bottom-2 -left-2 w-6 h-6 cursor-nesw-resize z-40 pointer-events-auto"
-        title="Redimensionar"
-      />
-      <div
-        onPointerDown={(e) => handleResizePointerDown('se', e)}
-        className="absolute -bottom-2 -right-2 w-6 h-6 cursor-nwse-resize z-40 pointer-events-auto"
-        title="Redimensionar"
-      />
-
-      {/* Título/nome da nota em cima do retângulo de borda à esquerda */}
-      <BoardNoteTitle
-        title={noteTitle}
-        onUpdateTitle={handleUpdateTitle}
-      />
-
-      {/* Botões de Opções de Interação (centralizados mais acima) */}
-      <BoardNoteActions
+    <>
+      <BoardBaseNoteElement
+        containerRef={containerRef}
+        element={element}
         isSelected={isSelected}
-        isHovered={isHovered}
+        snappedHandle={snappedHandle}
+        zoom={zoom}
+        canvasTheme={canvasTheme}
+        color={data.color}
+        title={noteTitle}
+        minWidth={160}
+        minHeight={120}
         isEditing={isEditing}
-        themeBorder={theme.border}
-        themes={NOTE_THEMES}
+        cardClassName={isEditing ? '!overflow-visible' : undefined}
+        contentClassName={isEditing ? '!overflow-visible' : undefined}
+        onSelect={onSelect}
+        onUpdate={onUpdate}
+        onDelete={onDelete}
+        onStartArrow={onStartArrow}
+        onUpdateTitle={handleUpdateTitle}
+        onUpdateColor={(newColor) => onUpdate({ data: { ...data, color: newColor } })}
         onToggleEdit={() => {
           if (isEditing) {
             saveAndExitEdit();
@@ -666,33 +423,22 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
             setIsEditing(true);
           }
         }}
-        onUpdateColor={(newColor) => {
-          onUpdate({ data: { ...data, color: newColor } });
-        }}
         onCenterElement={onCenterElement}
-        onDelete={onDelete}
-        onOpenInVault={data.filePath ? () => {
-          useVaultStore.getState().openDocument(data.filePath!);
-        } : undefined}
-      />
-
-      {/* Cartão Delimitador da Nota */}
-      <div
-        {...bindDrag()}
+        onOpenInVault={
+          data.filePath
+            ? () => {
+                useVaultStore.getState().openDocument(data.filePath!);
+              }
+            : undefined
+        }
+        onDragStart={onDragStart}
+        onPointerDown={handlePointerDown}
+        onClick={handleClick}
         onDoubleClick={handleDoubleClick}
-        className={clsx(
-          "w-full h-full rounded-2xl border-[3px] shadow-sm flex flex-col overflow-hidden relative cursor-grab active:cursor-grabbing",
-          isSelected ? "shadow-lg shadow-black/10" : ""
-        )}
-        style={{
-          backgroundColor: theme.bg,
-          borderColor: theme.border,
-        }}
       >
-        {/* Corpo: Modo Edição Direto ou Preview Renderizado */}
         {isEditing ? (
-          <div 
-            className="w-full flex-1 min-h-0 flex flex-col p-4 cursor-text select-text"
+          <div
+            className="w-full flex-1 min-h-0 flex flex-col p-4 cursor-text select-text relative"
             onPointerDown={(e) => e.stopPropagation()}
           >
             <textarea
@@ -701,8 +447,20 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
               value={draftContent}
               onChange={(e) => {
                 setDraftContent(e.target.value);
+                slashMenu.handleTextareaUpdate(e.currentTarget);
+              }}
+              onClick={(e) => {
+                slashMenu.handleTextareaUpdate(e.currentTarget);
+              }}
+              onKeyUp={(e) => {
+                if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Enter' && e.key !== 'Escape') {
+                  slashMenu.handleTextareaUpdate(e.currentTarget);
+                }
               }}
               onKeyDown={(e) => {
+                if (slashMenu.handleTextareaKeyDown(e)) {
+                  return;
+                }
                 if (e.key === 'Escape') {
                   e.stopPropagation();
                   e.nativeEvent.stopImmediatePropagation();
@@ -718,8 +476,18 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
                 e.stopPropagation();
                 e.nativeEvent.stopImmediatePropagation();
               }}
-              className="w-full h-full resize-none bg-transparent outline-none font-sans text-xs leading-relaxed text-neutral-900 custom-scrollbar"
+              className="w-full h-full resize-none bg-transparent outline-none font-sans text-xs leading-relaxed text-neutral-900 dark:text-neutral-100 custom-scrollbar"
             />
+
+            {slashMenu.isOpen && (
+              <SlashMenu
+                items={slashMenu.filteredCommands}
+                selectedIndex={slashMenu.selectedIndex}
+                onSelect={slashMenu.executeCommand}
+                onClose={slashMenu.close}
+                position={slashMenu.position}
+              />
+            )}
           </div>
         ) : (
           <div
@@ -732,8 +500,7 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
             dangerouslySetInnerHTML={{ __html: renderedHtml }}
           />
         )}
-
-      </div>
+      </BoardBaseNoteElement>
 
       {/* Modal de Confirmação de Atualização da Nota Original */}
       <UpdateOriginalNoteModal
@@ -744,6 +511,6 @@ export const BoardNoteElement: React.FC<BoardNoteElementProps> = ({
         onDoNotUpdate={handleDoNotUpdate}
         fileName={data.filePath}
       />
-    </div>
+    </>
   );
 };

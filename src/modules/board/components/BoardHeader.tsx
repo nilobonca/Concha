@@ -206,6 +206,7 @@ export const BoardHeader: React.FC<BoardHeaderProps> = ({
             className="pointer-events-auto flex items-center bg-white/85 dark:bg-[#14141C]/85 border border-black/10 dark:border-white/10 rounded-2xl px-2 py-1.5 shadow-xl backdrop-blur-xl app-region-no-drag"
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
             onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
           >
             <WindowControls variant="compact" />
           </div>

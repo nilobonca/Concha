@@ -45,26 +45,28 @@ export const DatabaseHeader: React.FC<DatabaseHeaderProps> = ({
       <div className="flex items-center justify-between gap-4">
         {/* Title Section */}
         <div className="flex items-center gap-3 flex-1 min-w-0">
-          {isEditingTitle ? (
-            <input
-              type="text"
-              value={titleDraft}
-              onChange={(e) => setTitleDraft(e.target.value)}
-              onBlur={handleTitleBlur}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleTitleBlur();
-              }}
-              autoFocus
-              className={`${isInline ? 'text-lg sm:text-xl' : 'text-2xl sm:text-3xl'} font-bold tracking-tight bg-transparent text-stone-900 dark:text-[#F4F0E6] outline-none border-b-2 border-[#52B1FF] py-0.5 w-full max-w-xl`}
-            />
-          ) : (
-            <h1
-              onClick={() => setIsEditingTitle(true)}
-              className={`${isInline ? 'text-lg sm:text-xl' : 'text-2xl sm:text-3xl'} font-bold tracking-tight text-stone-900 dark:text-[#F4F0E6] truncate cursor-pointer hover:opacity-80 transition-opacity`}
-              title="Clique para renomear a base de dados"
-            >
-              {title || 'Base de Dados'}
-            </h1>
+          {!isInline && (
+            isEditingTitle ? (
+              <input
+                type="text"
+                value={titleDraft}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                onBlur={handleTitleBlur}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleTitleBlur();
+                }}
+                autoFocus
+                className="text-2xl sm:text-3xl font-bold tracking-tight bg-transparent text-stone-900 dark:text-[#F4F0E6] outline-none border-b-2 border-[#52B1FF] py-0.5 w-full max-w-xl"
+              />
+            ) : (
+              <h1
+                onClick={() => setIsEditingTitle(true)}
+                className="text-2xl sm:text-3xl font-bold tracking-tight text-stone-900 dark:text-[#F4F0E6] truncate cursor-pointer hover:opacity-80 transition-opacity"
+                title="Clique para renomear a base de dados"
+              >
+                {title || 'Base de Dados'}
+              </h1>
+            )
           )}
 
           {/* Record Count Badge */}

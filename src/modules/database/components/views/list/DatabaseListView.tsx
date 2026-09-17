@@ -7,22 +7,26 @@ export interface DatabaseListViewProps {
   rows: DatabaseRow[];
   properties: PropertyDefinition[];
   viewConfig: DatabaseViewConfig;
+  databasePath?: string;
   onUpdateProperty: (rowId: string, propertyId: string, value: any) => void;
   onAddNewRow: () => void;
   onOpenPeek?: (rowId: string) => void;
   onDeleteRow?: (rowId: string) => void;
   isInline?: boolean;
+  onContextMenu?: (e: React.MouseEvent, row: DatabaseRow) => void;
 }
 
 export const DatabaseListView: React.FC<DatabaseListViewProps> = ({
   rows,
   properties,
   viewConfig,
+  databasePath,
   onUpdateProperty,
   onAddNewRow,
   onOpenPeek,
   onDeleteRow,
   isInline = false,
+  onContextMenu,
 }) => {
   return (
     <div className={`flex-1 w-full h-full overflow-y-auto ${isInline ? 'pt-1.5 px-3.5 pb-3.5' : 'pt-2 px-6 pb-6'}`}>
@@ -33,9 +37,11 @@ export const DatabaseListView: React.FC<DatabaseListViewProps> = ({
             row={row}
             properties={properties}
             visiblePropertyIds={viewConfig.visiblePropertyIds}
+            databasePath={databasePath}
             onUpdateProperty={onUpdateProperty}
             onOpenPeek={onOpenPeek}
             onDeleteRow={onDeleteRow}
+            onContextMenu={onContextMenu}
           />
         ))}
 

@@ -26,7 +26,29 @@ app.on('second-instance', () => {
 const isDev = !app.isPackaged && process.env.NODE_ENV !== 'production';
 let mainWindow = null;
 let localServer = null;
+let openSockets = new Set();
 let wasMaximizedBeforeLauncher = false;
+
+function stopProductionServer() {
+  if (localServer) {
+    console.log('[RPGSA Electron] Stopping local production server and destroying active sockets...');
+    for (const socket of openSockets) {
+      try {
+        socket.destroy();
+      } catch (e) {}
+    }
+    openSockets.clear();
+    try {
+      if (typeof localServer.closeAllConnections === 'function') {
+        localServer.closeAllConnections();
+      }
+      localServer.close();
+    } catch (err) {
+      console.warn('[RPGSA Electron] Error closing localServer:', err);
+    }
+    localServer = null;
+  }
+}
 
 // Fixed deterministic production port to guarantee persistent origin (localStorage & IndexedDB) across app updates
 const PRODUCTION_PORT = 32188;
@@ -114,6 +136,13 @@ async function startProductionServer() {
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
       handle(req, res);
+    });
+
+    server.on('connection', (socket) => {
+      openSockets.add(socket);
+      socket.on('close', () => {
+        openSockets.delete(socket);
+      });
     });
 
     const tryListen = (port) => {
@@ -210,8 +239,35 @@ async function createWindow() {
       await mainWindow.loadURL(`http://127.0.0.1:${port}`);
     } catch (err) {
       console.error('[RPGSA Electron] Failed to start local Next server:', err);
-      // Fallback
-      await mainWindow.loadURL('http://localhost:3000');
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        const errorStack = (err && err.stack) ? err.stack.replace(/</g, '&lt;') : (err ? String(err) : 'Erro desconhecido');
+        const errorHtml = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="utf-8">
+            <title>Erro ao Iniciar - Concha</title>
+            <style>
+              body { background: #0a0a0a; color: #f4f0e6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+              .box { max-width: 580px; padding: 32px; background: #17192a; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; text-align: center; }
+              h2 { color: #f87171; margin-top: 0; font-size: 18px; }
+              p { color: #a1a1aa; font-size: 13px; line-height: 1.5; }
+              pre { background: #000; padding: 12px; border-radius: 6px; text-align: left; font-size: 11px; overflow-x: auto; color: #fca5a5; max-height: 180px; }
+              button { background: #1831d7; color: white; border: none; padding: 8px 18px; border-radius: 6px; cursor: pointer; font-weight: 600; margin-top: 12px; }
+            </style>
+          </head>
+          <body>
+            <div class="box">
+              <h2>Falha ao Iniciar o Servidor Local</h2>
+              <p>Ocorreu um erro ao carregar os módulos do Next.js:</p>
+              <pre>${errorStack}</pre>
+              <button onclick="location.reload()">Tentar Novamente</button>
+            </div>
+          </body>
+          </html>
+        `;
+        await mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(errorHtml)}`);
+      }
     }
   }
 
@@ -1149,7 +1205,21 @@ ipcMain.handle('start-download-update', async () => {
 
 ipcMain.handle('quit-and-install', () => {
   if (!isDev) {
-    autoUpdater.quitAndInstall(true, true);
+    console.log('[RPGSA Updater] Preparing application shutdown for update installation...');
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      try {
+        mainWindow.destroy();
+      } catch (err) {
+        console.warn('[RPGSA Updater] Error destroying mainWindow:', err);
+      }
+      mainWindow = null;
+    }
+    stopProductionServer();
+
+    setImmediate(() => {
+      autoUpdater.quitAndInstall(true, true);
+      app.quit();
+    });
   } else {
     console.log('[RPGSA Updater Dev] Quit and install triggered in dev mode.');
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1196,11 +1266,13 @@ app.on('activate', () => {
   }
 });
 
+app.on('before-quit', () => {
+  stopProductionServer();
+});
+
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
-  if (localServer) {
-    localServer.close();
-  }
+  stopProductionServer();
 });
 
 app.on('window-all-closed', () => {

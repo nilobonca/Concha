@@ -18,6 +18,7 @@ export interface DatabaseTableViewProps {
   rows: DatabaseRow[];
   properties: PropertyDefinition[];
   viewConfig: DatabaseViewConfig;
+  databasePath?: string;
   onUpdateProperty: (rowId: string, propertyId: string, value: any) => void;
   onAddNewRow: () => void;
   onAddNewRowAtIndex?: (targetIndex: number) => void;
@@ -32,12 +33,14 @@ export interface DatabaseTableViewProps {
   onOpenUploadPopover?: (rowId: string, propertyId: string) => void;
   onCreateOption?: (propertyId: string, name: string, color: PropertyOptionColor) => void;
   isInline?: boolean;
+  onContextMenu?: (e: React.MouseEvent, row: DatabaseRow) => void;
 }
 
 export const DatabaseTableView: React.FC<DatabaseTableViewProps> = ({
   rows,
   properties,
   viewConfig,
+  databasePath,
   onUpdateProperty,
   onAddNewRow,
   onAddNewRowAtIndex,
@@ -52,6 +55,7 @@ export const DatabaseTableView: React.FC<DatabaseTableViewProps> = ({
   onOpenUploadPopover,
   onCreateOption,
   isInline = false,
+  onContextMenu,
 }) => {
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
   const [sortConfirmState, setSortConfirmState] = useState<{
@@ -195,6 +199,7 @@ export const DatabaseTableView: React.FC<DatabaseTableViewProps> = ({
               columnWidths={columnWidths}
               rowHeight={viewConfig.rowHeight}
               isSelected={selectedRowIds.has(row.id)}
+              databasePath={databasePath}
               onToggleSelect={handleToggleSelectRow}
               onAddRowAbove={() => handleAddRowNear(index, true)}
               onAddRowBelow={() => handleAddRowNear(index, false)}
@@ -205,6 +210,7 @@ export const DatabaseTableView: React.FC<DatabaseTableViewProps> = ({
               onOpenUploadPopover={onOpenUploadPopover}
               onCreateOption={onCreateOption}
               showRowNumbers={Boolean(viewConfig.showRowNumbers)}
+              onContextMenu={onContextMenu}
             />
           ))}
 

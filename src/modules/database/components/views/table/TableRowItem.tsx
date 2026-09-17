@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { MoreHorizontal, Trash2, Copy, Maximize2 } from 'lucide-react';
 import { DatabaseRow, PropertyDefinition, RowHeight, PropertyOptionColor } from '../../../types';
 import { DatabaseCellRenderer } from '../../cells/DatabaseCellRenderer';
+import { formatDatabaseRowPath } from '@/modules/vault/utils/databaseNodeUtils';
 
 export interface TableRowItemProps {
   row: DatabaseRow;
@@ -10,6 +11,7 @@ export interface TableRowItemProps {
   columnWidths: Record<string, number>;
   rowHeight?: RowHeight;
   isSelected?: boolean;
+  databasePath?: string;
   onToggleSelect?: (rowId: string) => void;
   onAddRowAbove?: () => void;
   onAddRowBelow?: () => void;
@@ -20,6 +22,7 @@ export interface TableRowItemProps {
   onOpenUploadPopover?: (rowId: string, propertyId: string) => void;
   onCreateOption?: (propertyId: string, name: string, color: PropertyOptionColor) => void;
   showRowNumbers?: boolean;
+  onContextMenu?: (e: React.MouseEvent, row: DatabaseRow) => void;
 }
 
 const ROW_HEIGHT_CLASSES: Record<RowHeight, string> = {
@@ -35,6 +38,7 @@ export const TableRowItem: React.FC<TableRowItemProps> = ({
   columnWidths,
   rowHeight = 'normal',
   isSelected = false,
+  databasePath,
   onToggleSelect,
   onAddRowAbove,
   onAddRowBelow,
@@ -45,14 +49,39 @@ export const TableRowItem: React.FC<TableRowItemProps> = ({
   onOpenUploadPopover,
   onCreateOption,
   showRowNumbers = false,
+  onContextMenu,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const heightClass = ROW_HEIGHT_CLASSES[rowHeight] || ROW_HEIGHT_CLASSES.normal;
 
+  const handleDragStart = (e: React.DragEvent) => {
+    if (databasePath) {
+      const rowPath = formatDatabaseRowPath(databasePath, row.id);
+      e.dataTransfer.setData('text/plain', rowPath);
+      e.dataTransfer.setData(
+        'application/rpgsa-vault-note',
+        JSON.stringify({
+          path: rowPath,
+          name: row.title || 'Nota sem título',
+          isDatabaseRow: true,
+          dbPath: databasePath,
+          rowId: row.id,
+        })
+      );
+    }
+  };
+
   return (
     <div
+      draggable={Boolean(databasePath)}
+      onDragStart={handleDragStart}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onContextMenu?.(e, row);
+      }}
       className={`group flex border-b border-stone-200/80 dark:border-white/5 transition-colors min-w-max ${heightClass} ${
         isSelected
           ? 'bg-[#1831D7]/8 dark:bg-[#52B1FF]/10'

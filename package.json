@@ -1,7 +1,9 @@
 {
   "name": "concha",
   "productName": "Concha",
-  "version": "1.0.1",
+  "version": "1.2.0",
+  "description": "Concha Desktop Application",
+  "author": "Nilo",
   "private": true,
   "main": "electron/main.js",
   "scripts": {

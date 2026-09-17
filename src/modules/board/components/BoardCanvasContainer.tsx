@@ -332,31 +332,33 @@ export const BoardCanvasContainer: React.FC<BoardCanvasContainerProps> = ({
 
   const handlePointerMove = (e: React.PointerEvent) => {
     if (isPanning && panStartRef.current) {
-      const dx = e.clientX - panStartRef.current.startX;
-      const dy = e.clientY - panStartRef.current.startY;
+      const panStart = panStartRef.current;
+      const dx = e.clientX - panStart.startX;
+      const dy = e.clientY - panStart.startY;
       setViewport(prev => ({
         ...prev,
-        x: panStartRef.current!.vpX + dx,
-        y: panStartRef.current!.vpY + dy,
+        x: panStart.vpX + dx,
+        y: panStart.vpY + dy,
       }));
       return;
     }
 
     if (marqueeStartRef.current) {
+      const marqueeStart = marqueeStartRef.current;
       const currentWorld = screenToWorld(e.clientX, e.clientY);
       const screenDist = Math.hypot(
-        e.clientX - marqueeStartRef.current.clientX,
-        e.clientY - marqueeStartRef.current.clientY
+        e.clientX - marqueeStart.clientX,
+        e.clientY - marqueeStart.clientY
       );
       if (screenDist > 4) {
         const box: MarqueeBox = {
-          minX: Math.min(marqueeStartRef.current.worldPos.x, currentWorld.x),
-          minY: Math.min(marqueeStartRef.current.worldPos.y, currentWorld.y),
-          maxX: Math.max(marqueeStartRef.current.worldPos.x, currentWorld.x),
-          maxY: Math.max(marqueeStartRef.current.worldPos.y, currentWorld.y),
+          minX: Math.min(marqueeStart.worldPos.x, currentWorld.x),
+          minY: Math.min(marqueeStart.worldPos.y, currentWorld.y),
+          maxX: Math.max(marqueeStart.worldPos.x, currentWorld.x),
+          maxY: Math.max(marqueeStart.worldPos.y, currentWorld.y),
         };
         setMarqueeBox(box);
-        onSelectionBoxChange?.(box, marqueeStartRef.current.isShift);
+        onSelectionBoxChange?.(box, marqueeStart.isShift);
       }
       return;
     }

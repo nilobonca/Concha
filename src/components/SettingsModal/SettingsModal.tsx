@@ -1,7 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { useThemeStore } from '@/store/themeStore';
-import { X, Check, DownloadCloud, UploadCloud, MessageSquareText, Palette, Monitor, Database, Keyboard, Gamepad2, KeyRound } from 'lucide-react';
+import { 
+  X, Check, DownloadCloud, UploadCloud, MessageSquareText, Palette, 
+  Monitor, Database, Keyboard, Gamepad2, KeyRound, HardDrive, FolderSync, 
+  Laptop, Trash2, Edit2, Folder, RefreshCw, Info, ShieldCheck 
+} from 'lucide-react';
 import clsx from 'clsx';
 import { useRouter } from 'next/router';
 import { useIDB } from '@/utils/indexedDB';
@@ -13,58 +17,69 @@ import { useShortcutStore } from '@/store/shortcutStore';
 import { useMinigamesStore } from '@/store/minigamesStore';
 import { AppUpdateSettingsSection } from './AppUpdateSettingsSection';
 import { SpellCheckSettingsSection } from './SpellCheckSettingsSection';
+import { SafeIcon } from '@/components/common/SafeIcon';
+import { useVaultStore } from '@/modules/vault/hooks/useVaultStore';
+import { 
+  getCanvasNoteSyncPref, 
+  setCanvasNoteSyncPref, 
+  CanvasNoteSyncPref 
+} from '@/modules/vault/utils/canvasNoteSyncPref';
 
-type Tab = 'appearance' | 'system' | 'backup' | 'shortcuts' | 'minigames';
+type Tab = 'appearance' | 'vault' | 'system' | 'backup' | 'shortcuts' | 'minigames';
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
+  isDashboard?: boolean;
+  initialTab?: Tab;
 }
 
 const shortcutCategories = [
   {
     name: 'Menus e Painéis',
     actions: [
-      { id: 'toggleChat', label: 'Chat' },
-      { id: 'toggleDiceTray', label: 'Bandeja de Dados' },
-      { id: 'toggleHistory', label: 'Histórico' },
-      { id: 'toggleSoundboard', label: 'Soundboard' },
-      { id: 'toggleGlobalAudio', label: 'Áudio Global' },
-      { id: 'toggleLayers', label: 'Camadas' },
-      { id: 'toggleSettings', label: 'Configurações' }
+      { id: 'toggleChat', label: 'Chat', isCanvasOnly: true },
+      { id: 'toggleDiceTray', label: 'Bandeja de Dados', isCanvasOnly: true },
+      { id: 'toggleHistory', label: 'Histórico', isCanvasOnly: true },
+      { id: 'toggleSoundboard', label: 'Soundboard', isCanvasOnly: true },
+      { id: 'toggleGlobalAudio', label: 'Áudio Global', isCanvasOnly: true },
+      { id: 'toggleLayers', label: 'Camadas', isCanvasOnly: true },
+      { id: 'toggleSettings', label: 'Configurações', isCanvasOnly: false }
     ]
   },
   {
     name: 'Ferramentas',
+    isCanvasOnly: true,
     actions: [
-      { id: 'toolCursor', label: 'Cursor' },
-      { id: 'toolArea', label: 'Área' },
-      { id: 'toolWall', label: 'Parede' },
-      { id: 'toolPin', label: 'Pino' },
-      { id: 'toolNote', label: 'Nota' },
-      { id: 'toolEraser', label: 'Borracha' },
+      { id: 'toolCursor', label: 'Cursor', isCanvasOnly: true },
+      { id: 'toolArea', label: 'Área', isCanvasOnly: true },
+      { id: 'toolWall', label: 'Parede', isCanvasOnly: true },
+      { id: 'toolPin', label: 'Pino', isCanvasOnly: true },
+      { id: 'toolNote', label: 'Nota', isCanvasOnly: true },
+      { id: 'toolEraser', label: 'Borracha', isCanvasOnly: true },
     ]
   },
   {
     name: 'Controle de Áudio',
+    isCanvasOnly: true,
     actions: [
-      { id: 'muteMaster', label: 'Mutar Master' },
-      { id: 'stopAllAudio', label: 'Parar Áudio' }
+      { id: 'muteMaster', label: 'Mutar Master', isCanvasOnly: true },
+      { id: 'stopAllAudio', label: 'Parar Áudio', isCanvasOnly: true }
     ]
   },
   {
     name: 'Sistema',
     actions: [
-      { id: 'toggleTheaterMode', label: 'Modo Teatro' },
-      { id: 'togglePreviewMode', label: 'Modo Preview' },
-      { id: 'undo', label: 'Desfazer' },
-      { id: 'redo', label: 'Refazer' },
-      { id: 'deleteSelection', label: 'Deletar Seleção' },
+      { id: 'toggleTheaterMode', label: 'Modo Teatro', isCanvasOnly: true },
+      { id: 'togglePreviewMode', label: 'Modo Preview', isCanvasOnly: true },
+      { id: 'undo', label: 'Desfazer', isCanvasOnly: false },
+      { id: 'redo', label: 'Refazer', isCanvasOnly: false },
+      { id: 'deleteSelection', label: 'Deletar Seleção', isCanvasOnly: false },
     ]
   }
 ];
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
+export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, isDashboard, initialTab }) => {
   const { 
     theme, 
     setTheme,
@@ -79,6 +94,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     areaRippleEnabled,
     setAreaRippleEnabled,
   } = useThemeStore();
+
+  // Vault Store integration
+  const { 
+    settingsOpen: vaultSettingsOpen, 
+    setSettingsOpen: setVaultSettingsOpen,
+    vaultName, 
+    setVaultName, 
+    storageType, 
+    isConnected,
+    vaultId,
+    connectFSA, 
+    connectIDB,
+    refreshNodes,
+    getAllFiles
+  } = useVaultStore();
   
   const [mounted, setMounted] = useState(false);
   const router = useRouter();
@@ -87,18 +117,118 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const [parsedImportData, setParsedImportData] = useState<ParsedImportData | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isChatLogModalOpen, setIsChatLogModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<Tab>('appearance');
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab || 'appearance');
   
   const { bindings, setBinding } = useShortcutStore();
   const [listeningFor, setListeningFor] = useState<string | null>(null);
   const { addGame } = useMinigamesStore();  
-  // Extract project/page ID from URL if inside a project
   const currentProjectId = router.query.id as string | undefined;
   const currentPageId = router.query.page as string | undefined;
+  const isDashboardMode = isDashboard ?? (!currentProjectId && !router.pathname.startsWith('/project'));
+
+  // Vault State
+  const [vaultNameInput, setVaultNameInput] = useState(vaultName);
+  const [vaultNameSaved, setVaultNameSaved] = useState(false);
+  const [isConnectingFSA, setIsConnectingFSA] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(true);
+  const [syncPref, setSyncPref] = useState<CanvasNoteSyncPref>('ask');
+
+  const isModalOpen = isOpen || vaultSettingsOpen;
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (vaultSettingsOpen) {
+      setActiveTab('vault');
+    } else if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [vaultSettingsOpen, initialTab]);
+
+  useEffect(() => {
+    setVaultNameInput(vaultName);
+  }, [vaultName]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const skip = localStorage.getItem('vault_skip_delete_confirm') === 'true';
+      setConfirmDelete(!skip);
+      setSyncPref(getCanvasNoteSyncPref());
+    }
+  }, [isModalOpen]);
+
+  const handleModalClose = () => {
+    onClose();
+    if (vaultSettingsOpen) {
+      setVaultSettingsOpen(false);
+    }
+  };
+
+  const handleSyncPrefChange = (val: CanvasNoteSyncPref) => {
+    setSyncPref(val);
+    setCanvasNoteSyncPref(val);
+  };
+
+  const handleToggleConfirmDelete = (enabled: boolean) => {
+    setConfirmDelete(enabled);
+    if (typeof window !== 'undefined') {
+      if (enabled) {
+        localStorage.removeItem('vault_skip_delete_confirm');
+      } else {
+        localStorage.setItem('vault_skip_delete_confirm', 'true');
+      }
+    }
+  };
+
+  const handleSaveVaultName = async () => {
+    const trimmed = vaultNameInput.trim();
+    if (trimmed && trimmed !== vaultName) {
+      await setVaultName(trimmed);
+      setVaultNameSaved(true);
+      setTimeout(() => setVaultNameSaved(false), 2500);
+    }
+  };
+
+  const handleConnectWindowsFolder = async () => {
+    try {
+      setIsConnectingFSA(true);
+      const success = await connectFSA(vaultId, true);
+      if (success) {
+        await refreshNodes();
+      }
+    } finally {
+      setIsConnectingFSA(false);
+    }
+  };
+
+  const handleReconnectWindowsFolder = async () => {
+    try {
+      setIsConnectingFSA(true);
+      await connectFSA(vaultId, false);
+      await refreshNodes();
+    } catch (err) {
+      console.warn('Falha ao reconectar pasta:', err);
+    } finally {
+      setIsConnectingFSA(false);
+    }
+  };
+
+  const handleSwitchToIDB = async () => {
+    if (confirm('Deseja alternar para o banco de dados interno (IndexedDB)? Seus arquivos na pasta do Windows permanecerão intactos no seu computador.')) {
+      await connectIDB();
+      await refreshNodes();
+    }
+  };
+
+  const totalVaultFiles = getAllFiles().length;
+
+  useEffect(() => {
+    if (isDashboardMode && activeTab === 'minigames') {
+      setActiveTab('appearance');
+    }
+  }, [isDashboardMode, activeTab]);
 
   useEffect(() => {
     if (!listeningFor) return;
@@ -131,19 +261,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   }, [listeningFor, setBinding]);
 
   useEffect(() => {
-    if (!isOpen || listeningFor) return;
+    if (!isModalOpen || listeningFor) return;
 
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose();
+        handleModalClose();
       }
     };
 
     window.addEventListener('keydown', handleEsc);
     return () => window.removeEventListener('keydown', handleEsc);
-  }, [isOpen, listeningFor, onClose]);
+  }, [isModalOpen, listeningFor]);
 
-  if (!isOpen || !mounted) return null;
+  if (!isModalOpen || !mounted) return null;
 
   const isLight = theme === 'light';
 
@@ -240,102 +370,390 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         </div>
       </div>
 
-      <div>
-        <h3 className={clsx("mb-4 text-sm font-semibold tracking-wide uppercase", isLight ? "text-stone-600" : "text-neutral-400")}>
-          Efeito Visual de Áudio
-        </h3>
-        <div className="p-4 border border-stone-200 dark:border-white/10 bg-stone-50/50 dark:bg-white/5 rounded-[1.5rem] transition-all duration-300 space-y-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className={clsx("font-medium text-sm", isLight ? "text-stone-900" : "text-neutral-200")}>Brilho nas Bordas</div>
-              <div className={clsx("text-xs", isLight ? "text-stone-600" : "text-neutral-400")}>Tela pulsa com o ritmo da música</div>
+      {!isDashboardMode && (
+        <div>
+          <h3 className={clsx("mb-4 text-sm font-semibold tracking-wide uppercase", isLight ? "text-stone-600" : "text-neutral-400")}>
+            Efeito Visual de Áudio
+          </h3>
+          <div className="p-4 border border-stone-200 dark:border-white/10 bg-stone-50/50 dark:bg-white/5 rounded-[1.5rem] transition-all duration-300 space-y-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className={clsx("font-medium text-sm", isLight ? "text-stone-900" : "text-neutral-200")}>Brilho nas Bordas</div>
+                <div className={clsx("text-xs", isLight ? "text-stone-600" : "text-neutral-400")}>Tela pulsa com o ritmo da música</div>
+              </div>
+              <button
+                onClick={() => setAudioVizEnabled(!audioVizEnabled)}
+                className={clsx(
+                  "relative w-11 h-6 rounded-full transition-colors duration-200",
+                  audioVizEnabled ? "bg-[#1831D7]" : "bg-neutral-700"
+                )}
+              >
+                <span className={clsx(
+                  "absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200",
+                  audioVizEnabled && "translate-x-5"
+                )} />
+              </button>
             </div>
-            <button
-              onClick={() => setAudioVizEnabled(!audioVizEnabled)}
-              className={clsx(
-                "relative w-11 h-6 rounded-full transition-colors duration-200",
-                audioVizEnabled ? "bg-[#1831D7]" : "bg-neutral-700"
-              )}
-            >
-              <span className={clsx(
-                "absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200",
-                audioVizEnabled && "translate-x-5"
-              )} />
-            </button>
-          </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <div className={clsx("font-medium text-sm", isLight ? "text-stone-900" : "text-neutral-200")}>Ondas nas Áreas</div>
-              <div className={clsx("text-xs", isLight ? "text-stone-600" : "text-neutral-400")}>Ondas sonoras emanam do centro das áreas ativas</div>
+            <div className="flex items-center justify-between">
+              <div>
+                <div className={clsx("font-medium text-sm", isLight ? "text-stone-900" : "text-neutral-200")}>Ondas nas Áreas</div>
+                <div className={clsx("text-xs", isLight ? "text-stone-600" : "text-neutral-400")}>Ondas sonoras emanam do centro das áreas ativas</div>
+              </div>
+              <button
+                onClick={() => setAreaRippleEnabled(!areaRippleEnabled)}
+                className={clsx(
+                  "relative w-11 h-6 rounded-full transition-colors duration-200",
+                  areaRippleEnabled ? "bg-[#1831D7]" : "bg-neutral-700"
+                )}
+              >
+                <span className={clsx(
+                  "absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200",
+                  areaRippleEnabled && "translate-x-5"
+                )} />
+              </button>
             </div>
-            <button
-              onClick={() => setAreaRippleEnabled(!areaRippleEnabled)}
-              className={clsx(
-                "relative w-11 h-6 rounded-full transition-colors duration-200",
-                areaRippleEnabled ? "bg-[#1831D7]" : "bg-neutral-700"
-              )}
-            >
-              <span className={clsx(
-                "absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200",
-                areaRippleEnabled && "translate-x-5"
-              )} />
-            </button>
-          </div>
-          {audioVizEnabled && (
-            <>
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className={clsx("font-medium text-sm", isLight ? "text-stone-900" : "text-neutral-200")}>Cor do Efeito</div>
-                  <div className={clsx("text-xs", isLight ? "text-stone-600" : "text-neutral-400")}>Escolha a cor do brilho</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {['#7F95FF', '#52B1FF', '#1831D7', '#B4D3F1', '#17192A'].map(color => (
-                    <button
-                      key={color}
-                      onClick={() => setAudioVizColor(color)}
-                      className={clsx(
-                        "w-7 h-7 rounded-full border-2 transition-all duration-200 hover:scale-110",
-                        audioVizColor === color ? "border-white scale-110" : "border-transparent"
-                      )}
-                      style={{ backgroundColor: color }}
+            {audioVizEnabled && (
+              <>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className={clsx("font-medium text-sm", isLight ? "text-stone-900" : "text-neutral-200")}>Cor do Efeito</div>
+                    <div className={clsx("text-xs", isLight ? "text-stone-600" : "text-neutral-400")}>Escolha a cor do brilho</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {['#7F95FF', '#52B1FF', '#1831D7', '#B4D3F1', '#17192A'].map(color => (
+                      <button
+                        key={color}
+                        onClick={() => setAudioVizColor(color)}
+                        className={clsx(
+                          "w-7 h-7 rounded-full border-2 transition-all duration-200 hover:scale-110",
+                          audioVizColor === color ? "border-white scale-110" : "border-transparent"
+                        )}
+                        style={{ backgroundColor: color }}
+                      />
+                    ))}
+                    <input
+                      type="color"
+                      value={audioVizColor}
+                      onChange={(e) => setAudioVizColor(e.target.value)}
+                      className="w-7 h-7 rounded-full cursor-pointer border-0 bg-transparent"
+                      title="Cor personalizada"
                     />
-                  ))}
+                  </div>
+                </div>
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <div className={clsx("font-medium text-sm", isLight ? "text-stone-900" : "text-neutral-200")}>Intensidade</div>
+                      <div className={clsx("text-xs", isLight ? "text-stone-600" : "text-neutral-400")}>Controla o tamanho e força do brilho</div>
+                    </div>
+                    <span className={clsx("text-xs font-mono", isLight ? "text-stone-700 font-semibold" : "text-neutral-400")}>{Math.round(audioVizIntensity * 100)}%</span>
+                  </div>
                   <input
-                    type="color"
-                    value={audioVizColor}
-                    onChange={(e) => setAudioVizColor(e.target.value)}
-                    className="w-7 h-7 rounded-full cursor-pointer border-0 bg-transparent"
-                    title="Cor personalizada"
+                    type="range"
+                    min="0"
+                    max="200"
+                    value={Math.round(audioVizIntensity * 100)}
+                    onChange={(e) => setAudioVizIntensity(Number(e.target.value) / 100)}
+                    className="w-full h-1.5 rounded-full appearance-none cursor-pointer bg-neutral-700 accent-[#1831D7]"
                   />
                 </div>
-              </div>
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <div>
-                    <div className={clsx("font-medium text-sm", isLight ? "text-stone-900" : "text-neutral-200")}>Intensidade</div>
-                    <div className={clsx("text-xs", isLight ? "text-stone-600" : "text-neutral-400")}>Controla o tamanho e força do brilho</div>
+                <div 
+                  className="relative h-16 rounded-xl overflow-hidden border border-white/10"
+                  style={{ boxShadow: `inset 0 0 80px ${audioVizColor}88`, backgroundColor: '#0a0a0a' }}
+                >
+                  <div className="absolute inset-0 flex items-center justify-center text-xs text-neutral-400">
+                    Prévia do efeito
                   </div>
-                  <span className={clsx("text-xs font-mono", isLight ? "text-stone-700 font-semibold" : "text-neutral-400")}>{Math.round(audioVizIntensity * 100)}%</span>
                 </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="200"
-                  value={Math.round(audioVizIntensity * 100)}
-                  onChange={(e) => setAudioVizIntensity(Number(e.target.value) / 100)}
-                  className="w-full h-1.5 rounded-full appearance-none cursor-pointer bg-neutral-700 accent-[#1831D7]"
-                />
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  const renderVaultTab = () => (
+    <div className="space-y-6 text-xs">
+      {/* 1. Armazenamento & Vincular Pasta do Windows (FSA / HD Local / IDB) */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Laptop className="w-4 h-4 text-[#1831D7] dark:text-[#7F95FF]" />
+          <h3 className="text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-neutral-400">
+            Armazenamento & Pasta do Windows
+          </h3>
+        </div>
+
+        {storageType === 'fsa' ? (
+          isConnected ? (
+            <div className="p-4 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/40 flex flex-col gap-3">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center text-emerald-700 dark:text-emerald-300 shrink-0">
+                    <HardDrive className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="font-semibold text-xs text-emerald-900 dark:text-emerald-200 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                      Conectado a uma Pasta Local do Windows (HD)
+                    </span>
+                    <p className="text-[11px] text-emerald-700/90 dark:text-emerald-300/80 mt-0.5">
+                      Sincronização ativa: seus arquivos <code className="font-mono bg-emerald-100 dark:bg-emerald-900/50 px-1 py-0.2 rounded">.md</code>, áudios e imagens são salvos diretamente no seu computador.
+                    </p>
+                  </div>
+                </div>
               </div>
-              <div 
-                className="relative h-16 rounded-xl overflow-hidden border border-white/10"
-                style={{ boxShadow: `inset 0 0 80px ${audioVizColor}88`, backgroundColor: '#0a0a0a' }}
+
+              <div className="flex items-center gap-2 pt-1 border-t border-emerald-200/70 dark:border-emerald-800/30">
+                <button
+                  onClick={handleConnectWindowsFolder}
+                  disabled={isConnectingFSA}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs transition-colors cursor-pointer shadow-xs disabled:opacity-50"
+                >
+                  {isConnectingFSA ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <FolderSync className="w-3.5 h-3.5" />
+                  )}
+                  <span>Alterar Pasta do Windows...</span>
+                </button>
+
+                <button
+                  onClick={handleSwitchToIDB}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-white/5 hover:bg-stone-100 dark:hover:bg-white/10 text-stone-700 dark:text-neutral-300 font-medium text-xs border border-stone-200 dark:border-white/10 transition-colors cursor-pointer"
+                >
+                  <Database className="w-3.5 h-3.5 text-[#1831D7] dark:text-[#7F95FF]" />
+                  <span>Usar Banco IndexedDB</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="p-4 rounded-xl bg-amber-50/80 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/40 flex flex-col gap-3">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center text-amber-700 dark:text-amber-300 shrink-0">
+                    <HardDrive className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="font-semibold text-xs text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-amber-500" />
+                      Pasta Desconectada (Permissão Pendente)
+                    </span>
+                    <p className="text-[11px] text-amber-700/90 dark:text-amber-300/80 mt-0.5">
+                      O acesso à pasta local deste Vault precisa de autorização para abrir e criar notas.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-1 border-t border-amber-200/70 dark:border-amber-800/30">
+                <button
+                  onClick={handleReconnectWindowsFolder}
+                  disabled={isConnectingFSA}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1831D7] hover:bg-[#1831D7]/90 text-white font-medium text-xs transition-colors cursor-pointer shadow-xs disabled:opacity-50"
+                >
+                  {isConnectingFSA ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <FolderSync className="w-3.5 h-3.5" />
+                  )}
+                  <span>Reconectar Pasta</span>
+                </button>
+
+                <button
+                  onClick={handleConnectWindowsFolder}
+                  disabled={isConnectingFSA}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-white/5 hover:bg-stone-100 dark:hover:bg-white/10 text-stone-700 dark:text-neutral-300 font-medium text-xs border border-stone-200 dark:border-white/10 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <span>Escolher Outra Pasta...</span>
+                </button>
+
+                <button
+                  onClick={handleSwitchToIDB}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-white/5 hover:bg-stone-100 dark:hover:bg-white/10 text-stone-700 dark:text-neutral-300 font-medium text-xs border border-stone-200 dark:border-white/10 transition-colors cursor-pointer"
+                >
+                  <Database className="w-3.5 h-3.5 text-[#1831D7] dark:text-[#7F95FF]" />
+                  <span>Usar IDB</span>
+                </button>
+              </div>
+            </div>
+          )
+        ) : (
+          <div className="p-4 rounded-xl bg-[#1831D7]/10 border border-[#7F95FF]/30 flex flex-col gap-3">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-lg bg-[#1831D7]/20 flex items-center justify-center text-[#1831D7] dark:text-[#7F95FF] shrink-0">
+                <Database className="w-4 h-4" />
+              </div>
+              <div className="flex-1">
+                <span className="font-semibold text-xs text-[#1831D7] dark:text-[#7F95FF] flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-[#1831D7]" />
+                  Armazenamento Local no Navegador (IndexedDB)
+                </span>
+                <p className="text-[11px] text-stone-600 dark:text-neutral-400 mt-0.5 leading-relaxed">
+                  Seus arquivos estão salvos no banco local. Você pode vincular uma pasta do Windows a qualquer momento para editar suas notas no Explorador ou VS Code.
+                </p>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-[#7F95FF]/30">
+              <button
+                onClick={handleConnectWindowsFolder}
+                disabled={isConnectingFSA}
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-[#1831D7] hover:bg-[#1831D7]/90 text-white font-semibold text-xs transition-all cursor-pointer shadow-md shadow-[#1831D7]/20 disabled:opacity-50"
               >
-                <div className="absolute inset-0 flex items-center justify-center text-xs text-neutral-400">
-                  Prévia do efeito
-                </div>
-              </div>
-            </>
-          )}
+                {isConnectingFSA ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <HardDrive className="w-4 h-4" />
+                )}
+                <span>Vincular Pasta do Windows (HD Local)...</span>
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 2. Nome do Vault */}
+      <div className="space-y-3 pt-2 border-t border-stone-200/80 dark:border-white/5">
+        <div className="flex items-center gap-2">
+          <Edit2 className="w-4 h-4 text-[#1831D7] dark:text-[#7F95FF]" />
+          <h3 className="text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-neutral-400">
+            Nome do Vault
+          </h3>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={vaultNameInput}
+            onChange={(e) => setVaultNameInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSaveVaultName();
+            }}
+            placeholder="Nome do seu Vault..."
+            className="flex-1 bg-stone-50 dark:bg-black/30 border border-stone-200 dark:border-white/10 rounded-lg px-3 py-2 text-xs text-stone-900 dark:text-neutral-100 outline-none focus:border-[#7F95FF]"
+          />
+          <button
+            onClick={handleSaveVaultName}
+            disabled={!vaultNameInput.trim() || vaultNameInput.trim() === vaultName}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#1831D7] hover:bg-[#1831D7]/90 disabled:opacity-40 text-white font-medium text-xs transition-colors cursor-pointer"
+          >
+            {vaultNameSaved ? <Check className="w-3.5 h-3.5" /> : null}
+            <span>{vaultNameSaved ? 'Salvo!' : 'Salvar Nome'}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* 3. Lixeira & Confirmação */}
+      <div className="space-y-3 pt-2 border-t border-stone-200/80 dark:border-white/5">
+        <div className="flex items-center gap-2">
+          <Trash2 className="w-4 h-4 text-[#1831D7] dark:text-[#7F95FF]" />
+          <h3 className="text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-neutral-400">
+            Lixeira & Confirmação de Exclusão
+          </h3>
+        </div>
+
+        <div className="flex items-center justify-between p-3 rounded-lg bg-stone-50 dark:bg-white/[0.02] border border-stone-200/70 dark:border-white/5">
+          <div className="pr-3">
+            <span className="font-semibold text-xs text-stone-900 dark:text-neutral-100 block">
+              Confirmar antes de excluir arquivos
+            </span>
+            <p className="text-[11px] text-stone-500 dark:text-neutral-400 mt-0.5 leading-relaxed">
+              Exibe o modal de confirmação antes de apagar notas ou pastas do Vault.
+            </p>
+          </div>
+
+          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+            <input
+              type="checkbox"
+              checked={confirmDelete}
+              onChange={(e) => handleToggleConfirmDelete(e.target.checked)}
+              className="sr-only peer"
+            />
+            <div className="w-9 h-5 bg-stone-300 peer-focus:outline-none rounded-full peer dark:bg-neutral-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#1831D7]"></div>
+          </label>
+        </div>
+      </div>
+
+      {/* 4. Sincronização de Notas */}
+      <div className="space-y-3 pt-2 border-t border-stone-200/80 dark:border-white/5">
+        <div className="flex items-center gap-2">
+          <FolderSync className="w-4 h-4 text-[#1831D7] dark:text-[#7F95FF]" />
+          <h3 className="text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-neutral-400">
+            Sincronização de Notas no Canvas
+          </h3>
+        </div>
+
+        <div className="p-3 rounded-lg bg-stone-50 dark:bg-white/[0.02] border border-stone-200/70 dark:border-white/5 space-y-2">
+          <div>
+            <span className="font-semibold text-xs text-stone-900 dark:text-neutral-100 block">
+              Ao editar nota vinculada no Canvas
+            </span>
+            <p className="text-[11px] text-stone-500 dark:text-neutral-400 mt-0.5 leading-relaxed">
+              Define o comportamento ao alterar o texto de uma nota vinculada diretamente no canvas.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-3 gap-1.5 pt-1">
+            <button
+              type="button"
+              onClick={() => handleSyncPrefChange('ask')}
+              className={clsx(
+                "px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-all cursor-pointer text-center",
+                syncPref === 'ask'
+                  ? "bg-white dark:bg-white/15 border-stone-400 dark:border-white/30 text-stone-900 dark:text-white shadow-xs font-semibold"
+                  : "border-stone-200 dark:border-white/5 text-stone-600 dark:text-neutral-400 hover:bg-stone-100 dark:hover:bg-white/5"
+              )}
+            >
+              Sempre perguntar
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleSyncPrefChange('always')}
+              className={clsx(
+                "px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-all cursor-pointer text-center",
+                syncPref === 'always'
+                  ? "bg-white dark:bg-white/15 border-stone-400 dark:border-white/30 text-stone-900 dark:text-white shadow-xs font-semibold"
+                  : "border-stone-200 dark:border-white/5 text-stone-600 dark:text-neutral-400 hover:bg-stone-100 dark:hover:bg-white/5"
+              )}
+            >
+              Sempre atualizar
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleSyncPrefChange('never')}
+              className={clsx(
+                "px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-all cursor-pointer text-center",
+                syncPref === 'never'
+                  ? "bg-white dark:bg-white/15 border-stone-400 dark:border-white/30 text-stone-900 dark:text-white shadow-xs font-semibold"
+                  : "border-stone-200 dark:border-white/5 text-stone-600 dark:text-neutral-400 hover:bg-stone-100 dark:hover:bg-white/5"
+              )}
+            >
+              Não atualizar
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* 5. Informações do Vault */}
+      <div className="space-y-2 pt-2 border-t border-stone-200/80 dark:border-white/5">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-neutral-400">
+          Informações do Vault
+        </h3>
+
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <div className="p-3 rounded-lg bg-stone-50 dark:bg-white/[0.02] border border-stone-200/70 dark:border-white/5">
+            <span className="text-[11px] text-stone-500 dark:text-neutral-400 block">Total de Arquivos & Notas</span>
+            <span className="font-bold text-sm text-stone-900 dark:text-neutral-100">{totalVaultFiles} itens</span>
+          </div>
+          <div className="p-3 rounded-lg bg-stone-50 dark:bg-white/[0.02] border border-stone-200/70 dark:border-white/5">
+            <span className="text-[11px] text-stone-500 dark:text-neutral-400 block">Tipo de Armazenamento</span>
+            <span className="font-bold text-sm text-stone-900 dark:text-neutral-100">
+              {storageType === 'fsa' ? 'HD Local (Windows)' : 'IndexedDB'}
+            </span>
+          </div>
         </div>
       </div>
     </div>
@@ -346,35 +764,37 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       <AppUpdateSettingsSection />
       <SpellCheckSettingsSection />
 
-      <div>
-        <h3 className={clsx("mb-4 text-sm font-semibold tracking-wide uppercase", isLight ? "text-stone-700" : "text-[#B4D3F1]/80")}>
-          Geral
-        </h3>
-        <div className={clsx("p-4 border", isLight ? "border-stone-200 bg-stone-50/70 rounded-xl" : "border-[#7F95FF]/15 bg-[#17192A]/50 rounded-xl")}>
-          <div className="flex items-center justify-between">
-            <div className="pr-4">
-              <h4 className={clsx("font-medium", isLight ? "text-stone-800" : "text-[#F4F0E6]")}>Modo Preview</h4>
-              <p className={clsx("text-sm mt-1", isLight ? "text-stone-600 font-medium" : "text-neutral-400")}>
-                Faça alterações no mapa sem afetar o que os jogadores veem.
-              </p>
+      {!isDashboardMode && (
+        <div>
+          <h3 className={clsx("mb-4 text-sm font-semibold tracking-wide uppercase", isLight ? "text-stone-700" : "text-[#B4D3F1]/80")}>
+            Geral
+          </h3>
+          <div className={clsx("p-4 border", isLight ? "border-stone-200 bg-stone-50/70 rounded-xl" : "border-[#7F95FF]/15 bg-[#17192A]/50 rounded-xl")}>
+            <div className="flex items-center justify-between">
+              <div className="pr-4">
+                <h4 className={clsx("font-medium", isLight ? "text-stone-800" : "text-[#F4F0E6]")}>Modo Preview</h4>
+                <p className={clsx("text-sm mt-1", isLight ? "text-stone-600 font-medium" : "text-neutral-400")}>
+                  Faça alterações no mapa sem afetar o que os jogadores veem.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  if (isPreviewMode) discardPreview?.();
+                  else startPreview?.();
+                }}
+                className={clsx(
+                  "px-4 py-2 font-medium transition-all text-sm rounded-lg whitespace-nowrap",
+                  isPreviewMode 
+                    ? "bg-amber-500/20 text-amber-500 hover:bg-amber-500/30" 
+                    : (isLight ? "bg-stone-200 hover:bg-stone-300 text-stone-900" : "bg-[#1831D7] hover:bg-[#1831D7]/90 text-[#F4F0E6]")
+                )}
+              >
+                {isPreviewMode ? 'Desativar Preview' : 'Ativar Preview'}
+              </button>
             </div>
-            <button
-              onClick={() => {
-                if (isPreviewMode) discardPreview?.();
-                else startPreview?.();
-              }}
-              className={clsx(
-                "px-4 py-2 font-medium transition-all text-sm rounded-lg whitespace-nowrap",
-                isPreviewMode 
-                  ? "bg-amber-500/20 text-amber-500 hover:bg-amber-500/30" 
-                  : (isLight ? "bg-stone-200 hover:bg-stone-300 text-stone-900" : "bg-[#1831D7] hover:bg-[#1831D7]/90 text-[#F4F0E6]")
-              )}
-            >
-              {isPreviewMode ? 'Desativar Preview' : 'Ativar Preview'}
-            </button>
           </div>
         </div>
-      </div>
+      )}
 
       {currentProjectId && (
         <div>
@@ -461,35 +881,45 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     </div>
   );
 
-  const renderShortcutsTab = () => (
-    <div className="space-y-6">
-      {shortcutCategories.map((category) => (
-        <div key={category.name}>
-          <h3 className={clsx("mb-3 text-sm font-semibold tracking-wide uppercase", isLight ? "text-stone-500" : "text-[#B4D3F1]/80")}>
-            {category.name}
-          </h3>
-          <div className={clsx("divide-y border rounded-xl", isLight ? "divide-stone-200 border-stone-200 bg-white" : "divide-white/10 border-[#7F95FF]/20 bg-[#17192A]/50")}>
-            {category.actions.map((action) => (
-              <div key={action.id} className="flex items-center justify-between p-4">
-                <span className={clsx("text-sm font-medium", isLight ? "text-stone-800" : "text-neutral-200")}>{action.label}</span>
-                <button
-                  onClick={() => setListeningFor(action.id)}
-                  className={clsx(
-                    "px-3 py-1.5 rounded-md text-sm font-medium transition-colors border",
-                    listeningFor === action.id 
-                      ? "bg-[#1831D7]/20 text-[#7F95FF] border-[#7F95FF]/50 animate-pulse" 
-                      : (isLight ? "bg-stone-100 text-stone-700 border-stone-200 hover:bg-stone-200" : "bg-white/5 text-neutral-300 border-white/10 hover:bg-white/10 hover:text-white")
-                  )}
-                >
-                  {listeningFor === action.id ? "Pressione..." : (bindings[action.id] || "Não definido")}
-                </button>
-              </div>
-            ))}
+  const renderShortcutsTab = () => {
+    const visibleCategories = shortcutCategories
+      .filter((cat) => !isDashboardMode || !cat.isCanvasOnly)
+      .map((cat) => ({
+        ...cat,
+        actions: cat.actions.filter((act) => !isDashboardMode || !act.isCanvasOnly),
+      }))
+      .filter((cat) => cat.actions.length > 0);
+
+    return (
+      <div className="space-y-6">
+        {visibleCategories.map((category) => (
+          <div key={category.name}>
+            <h3 className={clsx("mb-3 text-sm font-semibold tracking-wide uppercase", isLight ? "text-stone-500" : "text-[#B4D3F1]/80")}>
+              {category.name}
+            </h3>
+            <div className={clsx("divide-y border rounded-xl", isLight ? "divide-stone-200 border-stone-200 bg-white" : "divide-white/10 border-[#7F95FF]/20 bg-[#17192A]/50")}>
+              {category.actions.map((action) => (
+                <div key={action.id} className="flex items-center justify-between p-4">
+                  <span className={clsx("text-sm font-medium", isLight ? "text-stone-800" : "text-neutral-200")}>{action.label}</span>
+                  <button
+                    onClick={() => setListeningFor(action.id)}
+                    className={clsx(
+                      "px-3 py-1.5 rounded-md text-sm font-medium transition-colors border",
+                      listeningFor === action.id 
+                        ? "bg-[#1831D7]/20 text-[#7F95FF] border-[#7F95FF]/50 animate-pulse" 
+                        : (isLight ? "bg-stone-100 text-stone-700 border-stone-200 hover:bg-stone-200" : "bg-white/5 text-neutral-300 border-white/10 hover:bg-white/10 hover:text-white")
+                    )}
+                  >
+                    {listeningFor === action.id ? "Pressione..." : (bindings[action.id] || "Não definido")}
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-      ))}
-    </div>
-  );
+        ))}
+      </div>
+    );
+  };
 
 
   const renderMinigamesTab = () => (
@@ -742,13 +1172,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           "flex items-center justify-between p-6 border-b shrink-0",
           isLight ? "border-[#1831D7]/15" : "border-white/10"
         )}>
-          <h2 className={clsx("text-xl font-bold tracking-tight", isLight ? "text-[#17192A]" : "text-white")}>
-            Configurações
-          </h2>
+          <div>
+            <h2 className={clsx("text-xl font-bold tracking-tight", isLight ? "text-[#17192A]" : "text-white")}>
+              {isDashboardMode ? 'Opções do Aplicativo' : 'Configurações'}
+            </h2>
+            {isDashboardMode && (
+              <p className="text-xs text-stone-500 dark:text-neutral-400 font-medium mt-0.5">
+                Preferências gerais do sistema, armazenamento do vault e backup do app
+              </p>
+            )}
+          </div>
           <button 
-            onClick={onClose}
+            onClick={handleModalClose}
             className={clsx(
-              "p-2 rounded-full transition-colors",
+              "p-2 rounded-full transition-colors cursor-pointer",
               isLight ? "hover:bg-stone-200 text-stone-600 hover:text-stone-900" : "hover:bg-white/10 text-neutral-400 hover:text-white"
             )}
           >
@@ -763,19 +1200,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             isLight ? "border-stone-200/80 bg-stone-50/50" : "border-white/10 bg-black/20"
           )}>
             {renderTabButton('appearance', <Palette size={18} />, 'Aparência')}
+            {renderTabButton('vault', <SafeIcon size={18} />, 'Vault & Armazenamento')}
             {renderTabButton('system', <Monitor size={18} />, 'Sistema')}
             {renderTabButton('backup', <Database size={18} />, 'Backup')}
-            {renderTabButton('shortcuts', <Keyboard size={18} />, 'Atalhos')}
-            {renderTabButton('minigames', <Gamepad2 size={18} />, 'Minigames')}
+            {renderTabButton('shortcuts', <Keyboard size={18} />, isDashboardMode ? 'Atalhos do App' : 'Atalhos')}
+            {!isDashboardMode && renderTabButton('minigames', <Gamepad2 size={18} />, 'Minigames')}
           </div>
 
           {/* Content */}
           <div className="flex-1 p-6 overflow-y-auto">
             {activeTab === 'appearance' && renderAppearanceTab()}
+            {activeTab === 'vault' && renderVaultTab()}
             {activeTab === 'system' && renderSystemTab()}
             {activeTab === 'backup' && renderBackupTab()}
             {activeTab === 'shortcuts' && renderShortcutsTab()}
-            {activeTab === 'minigames' && renderMinigamesTab()}
+            {!isDashboardMode && activeTab === 'minigames' && renderMinigamesTab()}
           </div>
         </div>
       </div>

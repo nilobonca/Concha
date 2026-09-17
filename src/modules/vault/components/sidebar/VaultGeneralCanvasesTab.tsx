@@ -26,6 +26,9 @@ export interface VaultGeneralCanvasesTabProps {
   onCreateAudioCanvas: (targetFolderPath?: string | null) => void;
   selectedPath?: string | null;
   onSelectPath?: (path: string | null) => void;
+  selectedPaths?: Set<string>;
+  onSelectPaths?: (paths: Set<string>, lastPath?: string | null) => void;
+  lastSelectedPath?: string | null;
 }
 
 export const VaultGeneralCanvasesTab: React.FC<VaultGeneralCanvasesTabProps> = ({
@@ -34,6 +37,9 @@ export const VaultGeneralCanvasesTab: React.FC<VaultGeneralCanvasesTabProps> = (
   onCreateAudioCanvas,
   selectedPath,
   onSelectPath,
+  selectedPaths,
+  onSelectPaths,
+  lastSelectedPath,
 }) => {
   const router = useRouter();
   const { openCanvasTab, closeTab, vaultId, setSidebarTab, expandedFolders, toggleFolder, provider, refreshNodes } = useVaultStore();
@@ -338,8 +344,8 @@ export const VaultGeneralCanvasesTab: React.FC<VaultGeneralCanvasesTabProps> = (
           sortedGeneralCanvases.map((canvas) => {
             const isBoard = canvas.canvasType === 'board';
             const itemId = `canvas:${canvas.id}`;
-            const isSelected = selectedPath === itemId;
-            const isDropBefore = dropTargetId === canvas.id && dropPosition === 'before';
+            const isSelected = selectedPaths ? selectedPaths.has(itemId) : selectedPath === itemId;
+            const isDropBefore = dropTargetId === canvas.id && dropPosition === 'after';
             const isDropAfter = dropTargetId === canvas.id && dropPosition === 'after';
 
             return (
@@ -354,6 +360,9 @@ export const VaultGeneralCanvasesTab: React.FC<VaultGeneralCanvasesTabProps> = (
                     name: canvas.name,
                     canvasType: canvas.canvasType
                   }));
+                  if (selectedPaths && selectedPaths.size > 1) {
+                    e.dataTransfer.setData('application/rpgsa-vault-multi-paths', JSON.stringify(Array.from(selectedPaths)));
+                  }
                   setDraggedCanvas(canvas);
                 }}
                 onDragEnd={() => {
@@ -390,19 +399,62 @@ export const VaultGeneralCanvasesTab: React.FC<VaultGeneralCanvasesTabProps> = (
                 onContextMenu={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  if (onSelectPath) onSelectPath(itemId);
+                  if (selectedPaths && onSelectPaths) {
+                    if (!selectedPaths.has(itemId)) {
+                      onSelectPaths(new Set([itemId]), itemId);
+                    }
+                  } else if (onSelectPath) {
+                    onSelectPath(itemId);
+                  }
                   setContextMenu({
                     x: e.clientX,
                     y: e.clientY,
                     canvas
                   });
                 }}
-                onClick={() => {
-                  if (onSelectPath) onSelectPath(itemId);
-                  if (isBoard) {
-                    openCanvasTab(canvas.id, canvas.name);
+                onClick={(e) => {
+                  if (onSelectPaths) {
+                    if (e.shiftKey && lastSelectedPath) {
+                      const visibleIds = sortedGeneralCanvases.map(c => `canvas:${c.id}`);
+                      const anchorIdx = visibleIds.indexOf(lastSelectedPath);
+                      const targetIdx = visibleIds.indexOf(itemId);
+                      if (anchorIdx !== -1 && targetIdx !== -1) {
+                        const start = Math.min(anchorIdx, targetIdx);
+                        const end = Math.max(anchorIdx, targetIdx);
+                        const range = visibleIds.slice(start, end + 1);
+                        if (e.ctrlKey || e.metaKey) {
+                          const next = new Set(selectedPaths || []);
+                          range.forEach(id => next.add(id));
+                          onSelectPaths(next, itemId);
+                        } else {
+                          onSelectPaths(new Set(range), itemId);
+                        }
+                      } else {
+                        onSelectPaths(new Set([itemId]), itemId);
+                      }
+                    } else if (e.ctrlKey || e.metaKey) {
+                      const next = new Set(selectedPaths || []);
+                      if (next.has(itemId)) {
+                        next.delete(itemId);
+                      } else {
+                        next.add(itemId);
+                      }
+                      onSelectPaths(next, itemId);
+                    } else {
+                      onSelectPaths(new Set([itemId]), itemId);
+                      if (isBoard) {
+                        openCanvasTab(canvas.id, canvas.name);
+                      } else {
+                        navigateToProject(router, canvas.id, canvas.name);
+                      }
+                    }
                   } else {
-                    navigateToProject(router, canvas.id, canvas.name);
+                    if (onSelectPath) onSelectPath(itemId);
+                    if (isBoard) {
+                      openCanvasTab(canvas.id, canvas.name);
+                    } else {
+                      navigateToProject(router, canvas.id, canvas.name);
+                    }
                   }
                 }}
                 className={`group relative flex items-center justify-between py-2 px-2.5 rounded-xl cursor-pointer transition-all outline-none border ${

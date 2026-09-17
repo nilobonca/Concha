@@ -170,9 +170,13 @@ export const AmbientGraphBackdrop: React.FC<AmbientGraphBackdropProps> = ({
         {isElec && (
           <div 
             className="pointer-events-auto flex items-center shrink-0 app-region-no-drag"
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+            onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
           >
             <div 
-              className="p-1 px-1.5 rounded-full bg-black/40 backdrop-blur-md border border-white/[0.08] shadow-lg flex items-center"
+              className="p-1 px-1.5 rounded-full bg-black/40 backdrop-blur-md border border-white/[0.08] shadow-lg flex items-center app-region-no-drag"
+              style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
             >
               <WindowControls variant="compact" />
             </div>

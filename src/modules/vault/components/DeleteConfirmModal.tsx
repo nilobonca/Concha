@@ -10,6 +10,7 @@ export interface DeleteConfirmModalProps {
   itemPath?: string;
   isFolder?: boolean;
   itemType?: 'file' | 'folder' | 'canvas';
+  itemCount?: number;
   onNavigateToLink?: (path: string) => void;
 }
 
@@ -21,6 +22,7 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
   itemPath,
   isFolder = false,
   itemType,
+  itemCount = 1,
   onNavigateToLink
 }) => {
   const [dontAskAgain, setDontAskAgain] = useState(false);
@@ -29,20 +31,23 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
 
   // Determine effective type & label
   const effectiveType = itemType || (isFolder ? 'folder' : 'file');
-  const typeTitle = effectiveType === 'folder' 
-    ? 'Excluir pasta' 
-    : effectiveType === 'canvas' 
-      ? 'Excluir canvas' 
-      : 'Excluir arquivo';
+  const typeTitle = itemCount > 1
+    ? `Excluir ${itemCount} itens`
+    : effectiveType === 'folder' 
+      ? 'Excluir pasta' 
+      : effectiveType === 'canvas' 
+        ? 'Excluir canvas' 
+        : 'Excluir arquivo';
 
   // Format display name (adds .md if missing for markdown files)
   const displayName = useMemo(() => {
+    if (itemCount > 1) return `${itemCount} itens selecionados`;
     if (!itemName) return 'Sem título';
     if (effectiveType === 'file' && !itemName.includes('.')) {
       return `${itemName}.md`;
     }
     return itemName;
-  }, [itemName, effectiveType]);
+  }, [itemName, effectiveType, itemCount]);
 
   // Hook to detect backlinks / incoming references
   const effectivePath = itemPath || itemName;

@@ -1,21 +1,18 @@
 import * as React from "react"
 import { Moon, Sun, Sparkles, Flame, Terminal, Beer, Palette } from "lucide-react"
 import { useTheme, Theme } from "@/components/theme-provider"
+import { useClickOutside } from "@/hooks/useClickOutside"
 
 export function ThemeToggle() {
     const { setTheme, theme } = useTheme()
     const [isOpen, setIsOpen] = React.useState(false)
     const dropdownRef = React.useRef<HTMLDivElement>(null)
 
-    React.useEffect(() => {
-        function handleClickOutside(event: MouseEvent) {
-            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-                setIsOpen(false)
-            }
-        }
-        document.addEventListener("mousedown", handleClickOutside)
-        return () => document.removeEventListener("mousedown", handleClickOutside)
-    }, [])
+    useClickOutside({
+        ref: dropdownRef,
+        onClose: () => setIsOpen(false),
+        enabled: isOpen,
+    })
 
     const themes: { id: Theme; label: string; icon: React.ReactNode }[] = [
         { id: "dark", label: "Modo Escuro (Midnight)", icon: <Moon className="w-4 h-4 text-[#7F95FF]" /> },

@@ -182,6 +182,8 @@ export const ProjectTopHeaderBar: React.FC<ProjectTopHeaderBarProps> = ({
         <div
           className="flex items-center gap-1.5 app-region-no-drag shrink-0 pointer-events-auto"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          onMouseDown={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
         >
           {/* Status Ao Vivo / Offline */}
           <button

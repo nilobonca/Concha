@@ -16,6 +16,7 @@ export interface BacklinkReference {
   sourceTitle: string;
   targetTitle: string;
   snippet: string;
+  isCanvas?: boolean;
 }
 
 // Regex to capture [[Target]] and [[Target|Alias]] and [[Target#Header]]

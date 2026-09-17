@@ -218,7 +218,7 @@ export const useCanvasDragAndDrop = ({
           console.warn('Falha ao criar nota no Vault automaticamente:', err);
         }
 
-        const noteTitle = vaultPath ? vaultPath.split('/').pop()?.replace(/\.(md|txt)$/i, '') : 'Nova Nota';
+        const noteTitle = 'Nova Nota';
 
         const newNote: ActiveNote = {
           id: uuidv4(),

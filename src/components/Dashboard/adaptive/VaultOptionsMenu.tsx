@@ -1,4 +1,4 @@
-﻿import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   MoreVertical, 
   Copy, 
@@ -12,6 +12,7 @@ import {
   UploadCloud 
 } from 'lucide-react';
 import clsx from 'clsx';
+import { useClickOutside } from '@/hooks/useClickOutside';
 
 export interface VaultOptionsMenuProps {
   displayPath: string;
@@ -46,18 +47,11 @@ export const VaultOptionsMenu: React.FC<VaultOptionsMenuProps> = ({
   const menuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Fecha o dropdown ao clicar fora
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isOpen]);
+  useClickOutside({
+    ref: menuRef,
+    onClose: () => setIsOpen(false),
+    enabled: isOpen,
+  });
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -88,7 +82,7 @@ export const VaultOptionsMenu: React.FC<VaultOptionsMenuProps> = ({
       {isOpen && (
         <div 
           className={clsx(
-            "absolute right-0 w-64 rounded-xl bg-white dark:bg-[#181824] border border-black/10 dark:border-white/10 shadow-2xl p-1.5 z-50 text-xs space-y-0.5 animate-in fade-in zoom-in-95 duration-150",
+            "absolute right-0 w-64 rounded-lg bg-white dark:bg-[#181824] border border-black/10 dark:border-white/10 shadow-2xl p-1.5 z-50 text-xs space-y-0.5 animate-in fade-in zoom-in-95 duration-150",
             placement === 'top' ? 'bottom-full mb-2' : 'top-full mt-1.5'
           )}
         >

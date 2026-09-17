@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { MapPin, Square, Type, ChevronUp, ChevronDown, Circle, Triangle, Hexagon, User, Ear, MousePointer2, PenTool, BookOpen, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useClickOutside } from '@/hooks/useClickOutside';
 
 interface BottomToolbarProps {
     onDragStart: (e: React.DragEvent, type: string, data?: string) => void;
@@ -17,6 +18,7 @@ export default function BottomToolbar({ onDragStart, tool, setTool, onOpenVaultS
     const [lastUsedShape, setLastUsedShape] = useState('rectangle');
     const [showPinMenu, setShowPinMenu] = useState(false);
     const [lastUsedPin, setLastUsedPin] = useState('pin');
+    const [isTouchDevice, setIsTouchDevice] = useState(false);
     const shapeMenuRef = useRef<HTMLDivElement>(null);
     const pinMenuRef = useRef<HTMLDivElement>(null);
     const circleDragRef = useRef<HTMLDivElement>(null);
@@ -24,20 +26,22 @@ export default function BottomToolbar({ onDragStart, tool, setTool, onOpenVaultS
     const hexagonDragRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (shapeMenuRef.current && !shapeMenuRef.current.contains(event.target as Node)) {
-                setShowShapeMenu(false);
-            }
-            if (pinMenuRef.current && !pinMenuRef.current.contains(event.target as Node)) {
-                setShowPinMenu(false);
-            }
-        };
-
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => {
-            document.removeEventListener('mousedown', handleClickOutside);
-        };
+        if (typeof window !== 'undefined') {
+            setIsTouchDevice(('ontouchstart' in window) || (navigator.maxTouchPoints > 0));
+        }
     }, []);
+
+    useClickOutside({
+        ref: shapeMenuRef,
+        onClose: () => setShowShapeMenu(false),
+        enabled: showShapeMenu,
+    });
+
+    useClickOutside({
+        ref: pinMenuRef,
+        onClose: () => setShowPinMenu(false),
+        enabled: showPinMenu,
+    });
 
     const handleAreaContextMenu = (e: React.MouseEvent) => {
         e.preventDefault();
@@ -283,10 +287,15 @@ export default function BottomToolbar({ onDragStart, tool, setTool, onOpenVaultS
 
                         {/* Note */}
                         <div
-                            draggable
+                            draggable={!isTouchDevice}
                             onDragStart={(e) => onDragStart(e, 'note')}
-                            className="group flex flex-col items-center gap-1 cursor-grab active:cursor-grabbing hover:scale-110 transition-transform"
-                            title="Arrastar Texto"
+                            onClick={() => onOpenVaultSearch?.('notes')}
+                            onTouchEnd={(e) => {
+                                e.preventDefault();
+                                onOpenVaultSearch?.('notes');
+                            }}
+                            className="group flex flex-col items-center gap-1 cursor-pointer active:cursor-grabbing hover:scale-110 transition-transform"
+                            title="Inserir Nota ou Texto (Clique/Toque para buscar ou arraste para o canvas)"
                         >
                             <div className="p-1.5 bg-yellow-100 dark:bg-yellow-900/30 rounded-full group-hover:bg-yellow-200 dark:group-hover:bg-yellow-800/50 transition-colors">
                                 <Type size={20} className="text-yellow-600 dark:text-yellow-400" />
@@ -295,11 +304,15 @@ export default function BottomToolbar({ onDragStart, tool, setTool, onOpenVaultS
 
                         {/* Vault Document Link / Notes Picker */}
                         <div
-                            draggable
+                            draggable={!isTouchDevice}
                             onDragStart={(e) => onDragStart(e, 'vault-link')}
                             onClick={() => onOpenVaultSearch?.('notes')}
+                            onTouchEnd={(e) => {
+                                e.preventDefault();
+                                onOpenVaultSearch?.('notes');
+                            }}
                             className="group flex flex-col items-center gap-1 cursor-pointer active:cursor-grabbing hover:scale-110 transition-transform"
-                            title="Inserir Nota do Vault (Clique para escolher ou arraste para o canvas)"
+                            title="Inserir Nota do Vault (Clique/Toque para escolher ou arraste para o canvas)"
                         >
                             <div className="p-1.5 bg-[#1831D7]/10 dark:bg-[#1831D7]/30 rounded-full group-hover:bg-[#1831D7]/20 dark:group-hover:bg-[#1831D7]/50 transition-colors">
                                 <BookOpen size={20} className="text-[#1831D7] dark:text-[#7F95FF]" />
@@ -310,6 +323,10 @@ export default function BottomToolbar({ onDragStart, tool, setTool, onOpenVaultS
                         {onOpenVaultSearch && (
                             <button
                                 onClick={() => onOpenVaultSearch('all')}
+                                onTouchEnd={(e) => {
+                                    e.preventDefault();
+                                    onOpenVaultSearch('all');
+                                }}
                                 className="group flex flex-col items-center gap-1 hover:scale-110 transition-transform cursor-pointer"
                                 title="Buscar e Adicionar do Vault (Áudios, Imagens, Notas) - Ctrl+K"
                             >

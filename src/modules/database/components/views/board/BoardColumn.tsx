@@ -6,6 +6,7 @@ import {
 } from '../../../types';
 import { BoardCardItem } from './BoardCardItem';
 import { BoardAddCard } from './BoardAddCard';
+import { formatDatabaseRowPath } from '@/modules/vault/utils/databaseNodeUtils';
 
 export interface BoardColumnProps {
   groupKey: string;
@@ -16,10 +17,12 @@ export interface BoardColumnProps {
   visiblePropertyIds: string[];
   coverPropertyId?: string;
   cardSize?: CardSize;
+  databasePath?: string;
   onOpenPeek?: (rowId: string) => void;
   onUpdateProperty: (rowId: string, propertyId: string, value: any) => void;
   onAddCardToGroup: (groupKey: string, title: string) => void;
   onDropCardInGroup: (rowId: string, targetGroupKey: string) => void;
+  onContextMenu?: (e: React.MouseEvent, row: DatabaseRow) => void;
 }
 
 export const BoardColumn: React.FC<BoardColumnProps> = ({
@@ -31,10 +34,12 @@ export const BoardColumn: React.FC<BoardColumnProps> = ({
   visiblePropertyIds,
   coverPropertyId,
   cardSize,
+  databasePath,
   onOpenPeek,
   onUpdateProperty,
   onAddCardToGroup,
   onDropCardInGroup,
+  onContextMenu,
 }) => {
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -50,14 +55,34 @@ export const BoardColumn: React.FC<BoardColumnProps> = ({
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
-    const rowId = e.dataTransfer.getData('text/plain');
-    if (rowId) {
-      onDropCardInGroup(rowId, groupKey);
+    const internalRowId = e.dataTransfer.getData('application/rpgsa-row-id');
+    const rawData = e.dataTransfer.getData('text/plain');
+    const targetRowId = internalRowId || rawData;
+
+    if (targetRowId && !targetRowId.includes('/')) {
+      onDropCardInGroup(targetRowId, groupKey);
     }
   };
 
   const handleDragStart = (e: React.DragEvent, rowId: string) => {
-    e.dataTransfer.setData('text/plain', rowId);
+    e.dataTransfer.setData('application/rpgsa-row-id', rowId);
+    if (databasePath) {
+      const rowPath = formatDatabaseRowPath(databasePath, rowId);
+      const row = rows.find((r) => r.id === rowId);
+      e.dataTransfer.setData('text/plain', rowPath);
+      e.dataTransfer.setData(
+        'application/rpgsa-vault-note',
+        JSON.stringify({
+          path: rowPath,
+          name: row?.title || 'Nota sem título',
+          isDatabaseRow: true,
+          dbPath: databasePath,
+          rowId,
+        })
+      );
+    } else {
+      e.dataTransfer.setData('text/plain', rowId);
+    }
   };
 
   return (
@@ -100,6 +125,7 @@ export const BoardColumn: React.FC<BoardColumnProps> = ({
             onOpenPeek={onOpenPeek}
             onUpdateProperty={onUpdateProperty}
             onDragStart={handleDragStart}
+            onContextMenu={onContextMenu}
           />
         ))}
       </div>

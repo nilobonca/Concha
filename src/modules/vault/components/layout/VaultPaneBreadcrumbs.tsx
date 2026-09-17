@@ -137,6 +137,7 @@ export const VaultPaneBreadcrumbs: React.FC<VaultPaneBreadcrumbsProps> = ({
             {/* 3-dots Context Menu for Options, View Modes, Search & Actions */}
             <VaultFormattingMenu
               editor={activeEditorRef}
+              content={activeContent}
               viewMode={viewMode}
               onViewModeChange={setViewMode}
               onToggleSearch={toggleNoteSearch}

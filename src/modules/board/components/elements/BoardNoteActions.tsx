@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { SquarePen, Palette, Trash2, Focus, Check, BookOpen } from 'lucide-react';
 import clsx from 'clsx';
+import { NoteOptionsMenu } from '@/modules/vault/components/NoteOptionsMenu';
 
 export interface BoardNoteActionsProps {
   isSelected: boolean;
@@ -14,6 +15,7 @@ export interface BoardNoteActionsProps {
   onCenterElement?: () => void;
   onOpenInVault?: () => void;
   className?: string;
+  content?: string;
 }
 
 export const BoardNoteActions: React.FC<BoardNoteActionsProps> = ({
@@ -28,6 +30,7 @@ export const BoardNoteActions: React.FC<BoardNoteActionsProps> = ({
   onCenterElement,
   onOpenInVault,
   className,
+  content,
 }) => {
   const [showColorPicker, setShowColorPicker] = useState(false);
 
@@ -179,6 +182,22 @@ export const BoardNoteActions: React.FC<BoardNoteActionsProps> = ({
       >
         {isEditing ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <SquarePen className="w-3.5 h-3.5" />}
       </button>
+
+      {/* 6. Menu de 3 Pontinhos Padronizado */}
+      <NoteOptionsMenu
+        color={themeBorder}
+        colors={themes}
+        onColorChange={onUpdateColor}
+        onCenterElement={onCenterElement}
+        onOpenInVault={onOpenInVault}
+        onToggleEdit={onToggleEdit}
+        isEditing={isEditing}
+        onDelete={onDelete}
+        deleteLabel="Excluir Nota"
+        iconType="vertical"
+        content={content}
+      />
     </div>
   );
 };
+
